@@ -17,11 +17,17 @@ go build -o ef .
 # Open file at specific line
 ./ef filename.go:42
 
-# Split view (two files)
-./ef file1.go file2.go
+# Multiple files - vertical splits (side-by-side, default)
+./ef file1.go file2.go file3.go
 
-# Split view with line numbers
-./ef file1.go:10 file2.go:25
+# Multiple files - horizontal splits (stacked, with -h flag)
+./ef -h file1.go file2.go file3.go
+
+# Multiple files with line numbers
+./ef file1.go:10 file2.go:25 file3.go:100
+
+# Horizontal splits with line numbers
+./ef -h file1.go:10 file2.go:25
 ```
 
 ## Modes
@@ -114,7 +120,7 @@ go build -o ef .
 - **Editing** - Yank, delete, paste, undo/redo
 - **Search & Replace** - Case-insensitive search with find-and-replace
 - **Autocomplete** - Word suggestions based on buffer content
-- **Split View** - Edit two files side by side
+- **Multi-File Splits** - Edit multiple files side-by-side (vertical, default) or stacked (horizontal with `-h`)
 - **Syntax Highlighting** - Configurable per file type
 - **Auto-save** - Saves 200ms after changes
 - **Relative Line Numbers** - With mode-colored indicators

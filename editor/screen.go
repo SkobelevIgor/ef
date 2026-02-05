@@ -13,6 +13,16 @@ type Screen struct {
 	screen tcell.Screen
 }
 
+// Pane represents the computed layout for a single buffer viewport
+// This is calculated during rendering based on screen size and split mode
+type Pane struct {
+	BufferIndex int // Index into Editor.buffers slice
+	StartX      int // Screen X coordinate of pane's top-left corner
+	StartY      int // Screen Y coordinate of pane's top-left corner
+	Width       int // Pane width in characters
+	Height      int // Pane height in lines
+}
+
 // NewScreen creates and initializes a new screen
 func NewScreen() (*Screen, error) {
 	s, err := tcell.NewScreen()
@@ -74,8 +84,120 @@ func (s *Screen) PostEvent(ev tcell.Event) error {
 	return s.screen.PostEvent(ev)
 }
 
+// calculatePaneLayoutHorizontal computes pane positions for horizontal (stacked) splits
+func calculatePaneLayoutHorizontal(numBuffers, width, height, contentStartY int) []Pane {
+	if numBuffers == 0 {
+		return nil
+	}
+
+	// Calculate available height (excluding separators between panes)
+	numSeparators := numBuffers - 1
+	availableHeight := height - numSeparators
+
+	// Calculate base pane height and distribute remainder
+	baseHeight := availableHeight / numBuffers
+	remainder := availableHeight % numBuffers
+
+	// Enforce minimum height
+	visiblePanes := numBuffers
+	for baseHeight < MinPaneHeightHorizontal && visiblePanes > 1 {
+		visiblePanes--
+		numSeparators = visiblePanes - 1
+		availableHeight = height - numSeparators
+		baseHeight = availableHeight / visiblePanes
+		remainder = availableHeight % visiblePanes
+	}
+
+	panes := make([]Pane, visiblePanes)
+	currentY := contentStartY
+
+	for i := 0; i < visiblePanes; i++ {
+		paneHeight := baseHeight
+		// Distribute remainder to last panes
+		if i >= visiblePanes-remainder {
+			paneHeight++
+		}
+
+		panes[i] = Pane{
+			BufferIndex: i,
+			StartX:      0,
+			StartY:      currentY,
+			Width:       width,
+			Height:      paneHeight,
+		}
+
+		currentY += paneHeight + 1 // +1 for separator
+	}
+
+	return panes
+}
+
+// calculatePaneLayoutVertical computes pane positions for vertical (side-by-side) splits
+func calculatePaneLayoutVertical(numBuffers, width, height, contentStartY int) []Pane {
+	if numBuffers == 0 {
+		return nil
+	}
+
+	// Calculate available width (excluding separators between panes)
+	numSeparators := numBuffers - 1
+	availableWidth := width - numSeparators
+
+	// Calculate base pane width and distribute remainder
+	baseWidth := availableWidth / numBuffers
+	remainder := availableWidth % numBuffers
+
+	// Enforce minimum width
+	visiblePanes := numBuffers
+	for baseWidth < MinPaneWidthVertical && visiblePanes > 1 {
+		visiblePanes--
+		numSeparators = visiblePanes - 1
+		availableWidth = width - numSeparators
+		baseWidth = availableWidth / visiblePanes
+		remainder = availableWidth % visiblePanes
+	}
+
+	panes := make([]Pane, visiblePanes)
+	currentX := 0
+
+	for i := 0; i < visiblePanes; i++ {
+		paneWidth := baseWidth
+		// Distribute remainder to last panes
+		if i >= visiblePanes-remainder {
+			paneWidth++
+		}
+
+		panes[i] = Pane{
+			BufferIndex: i,
+			StartX:      currentX,
+			StartY:      contentStartY,
+			Width:       paneWidth,
+			Height:      height,
+		}
+
+		currentX += paneWidth + 1 // +1 for separator
+	}
+
+	return panes
+}
+
+// renderHorizontalSeparator draws a horizontal line between panes
+func (s *Screen) renderHorizontalSeparator(y, width int) {
+	separatorStyle := tcell.StyleDefault.Foreground(tcell.ColorGray)
+	for x := 0; x < width; x++ {
+		s.screen.SetContent(x, y, '─', nil, separatorStyle)
+	}
+}
+
+// renderVerticalSeparator draws a vertical line between panes
+func (s *Screen) renderVerticalSeparator(x, startY, height int) {
+	separatorStyle := tcell.StyleDefault.Foreground(tcell.ColorGray)
+	for y := startY; y < startY+height; y++ {
+		s.screen.SetContent(x, y, '│', nil, separatorStyle)
+	}
+}
+
 // Render draws the buffer content
-func (s *Screen) Render(buffers []*Buffer, activePane int, mode Mode, inputState *InputState) {
+func (s *Screen) Render(buffers []*Buffer, activePane int, mode Mode, inputState *InputState, splitMode SplitMode) {
 	s.screen.Clear()
 	width, height := s.screen.Size()
 
@@ -89,92 +211,83 @@ func (s *Screen) Render(buffers []*Buffer, activePane int, mode Mode, inputState
 		height-- // Reduce available height for content
 	}
 
-	if len(buffers) == 1 {
-		// Single pane mode
-		lineNumWidth := getLineNumberWidth(buffers[0])
-		textWidth := width - lineNumWidth
-		buffers[0].AdjustScroll(textWidth, height)
-		s.renderPaneWithSearch(buffers[0], 0, contentStartY, width, height, mode, inputState.Search)
-
-		// Position cursor: in search bar if editing query, otherwise in buffer
-		if searchActive && !inputState.Search.Confirmed {
-			// Cursor in search bar at end of query
-			prompt := "Search: "
-			if inputState.Search.IsReplaceMode {
-				prompt = "Replace: "
-			}
-			cursorX := len(prompt) + len(inputState.Search.Query)
-			s.screen.ShowCursor(cursorX, 0)
-		} else {
-			cursorX, cursorY := getCursorScreenPos(buffers[0], width, lineNumWidth)
-			cursorY += contentStartY
-			s.screen.ShowCursor(cursorX, cursorY)
-
-			// Render autocomplete dropdown if active
-			if inputState.Autocomplete != nil && inputState.Autocomplete.Active {
-				s.renderAutocomplete(inputState.Autocomplete, cursorX, cursorY, height+contentStartY)
-			}
-		}
+	// Calculate pane layout based on split mode
+	var panes []Pane
+	if splitMode == SplitVertical {
+		panes = calculatePaneLayoutVertical(len(buffers), width, height, contentStartY)
 	} else {
-		// Split view - two panes
-		leftWidth := width / 2
-		rightWidth := width - leftWidth - 1 // -1 for separator
+		panes = calculatePaneLayoutHorizontal(len(buffers), width, height, contentStartY)
+	}
 
-		// Adjust scroll for both panes
-		leftLineNumWidth := getLineNumberWidth(buffers[0])
-		rightLineNumWidth := getLineNumberWidth(buffers[1])
-		buffers[0].AdjustScroll(leftWidth-leftLineNumWidth, height)
-		buffers[1].AdjustScroll(rightWidth-rightLineNumWidth, height)
+	// Clamp activePane to visible panes
+	if activePane >= len(panes) {
+		activePane = len(panes) - 1
+	}
+	if activePane < 0 {
+		activePane = 0
+	}
 
-		// Render left pane (use mode only for active pane)
-		leftMode := ModeNormal
-		if activePane == 0 {
-			leftMode = mode
+	// Render all panes
+	for i, pane := range panes {
+		if pane.BufferIndex >= len(buffers) {
+			continue
 		}
-		s.renderPaneWithSearch(buffers[0], 0, contentStartY, leftWidth, height, leftMode, inputState.Search)
+		buf := buffers[pane.BufferIndex]
 
-		// Draw vertical separator
-		separatorStyle := tcell.StyleDefault.Foreground(tcell.ColorGray)
-		for y := contentStartY; y < contentStartY+height; y++ {
-			s.screen.SetContent(leftWidth, y, '│', nil, separatorStyle)
+		// Adjust scroll for this pane
+		lineNumWidth := getLineNumberWidth(buf)
+		textWidth := pane.Width - lineNumWidth
+		if textWidth < 1 {
+			textWidth = 1
+		}
+		buf.AdjustScroll(textWidth, pane.Height)
+
+		// Determine mode for this pane (only active pane shows current mode)
+		paneMode := ModeNormal
+		if i == activePane {
+			paneMode = mode
 		}
 
-		// Render right pane
-		rightMode := ModeNormal
-		if activePane == 1 {
-			rightMode = mode
-		}
-		s.renderPaneWithSearch(buffers[1], leftWidth+1, contentStartY, rightWidth, height, rightMode, inputState.Search)
+		// Render the pane
+		s.renderPaneWithSearch(buf, pane.StartX, pane.StartY, pane.Width, pane.Height, paneMode, inputState.Search)
 
-		// Position cursor: in search bar if editing query, otherwise in active pane
-		if searchActive && !inputState.Search.Confirmed {
-			// Cursor in search bar at end of query
-			prompt := "Search: "
-			if inputState.Search.IsReplaceMode {
-				prompt = "Replace: "
-			}
-			cursorX := len(prompt) + len(inputState.Search.Query)
-			s.screen.ShowCursor(cursorX, 0)
-		} else {
-			activeBuf := buffers[activePane]
-			lineNumWidth := getLineNumberWidth(activeBuf)
-			var paneWidth int
-			if activePane == 0 {
-				paneWidth = leftWidth
+		// Draw separator after this pane (if not the last pane)
+		if i < len(panes)-1 {
+			if splitMode == SplitVertical {
+				// Vertical separator to the right of this pane
+				s.renderVerticalSeparator(pane.StartX+pane.Width, pane.StartY, pane.Height)
 			} else {
-				paneWidth = rightWidth
+				// Horizontal separator below this pane
+				s.renderHorizontalSeparator(pane.StartY+pane.Height, width)
 			}
-			cursorX, cursorY := getCursorScreenPos(activeBuf, paneWidth, lineNumWidth)
-			cursorY += contentStartY
-			if activePane == 1 {
-				cursorX += leftWidth + 1
-			}
-			s.screen.ShowCursor(cursorX, cursorY)
+		}
+	}
 
-			// Render autocomplete dropdown if active
-			if inputState.Autocomplete != nil && inputState.Autocomplete.Active {
-				s.renderAutocomplete(inputState.Autocomplete, cursorX, cursorY, height+contentStartY)
-			}
+	// Position cursor
+	if searchActive && !inputState.Search.Confirmed {
+		// Cursor in search bar at end of query
+		prompt := "Search: "
+		if inputState.Search.IsReplaceMode {
+			prompt = "Replace: "
+		}
+		cursorX := len(prompt) + len(inputState.Search.Query)
+		s.screen.ShowCursor(cursorX, 0)
+	} else if activePane < len(panes) && activePane < len(buffers) {
+		// Cursor in active pane
+		activePaneLayout := panes[activePane]
+		activeBuf := buffers[activePane]
+		lineNumWidth := getLineNumberWidth(activeBuf)
+
+		cursorX, cursorY := getCursorScreenPos(activeBuf, activePaneLayout.Width, lineNumWidth)
+		cursorX += activePaneLayout.StartX
+		cursorY += activePaneLayout.StartY
+		s.screen.ShowCursor(cursorX, cursorY)
+
+		// Render autocomplete dropdown if active (constrained to pane)
+		if inputState.Autocomplete != nil && inputState.Autocomplete.Active {
+			// Calculate max Y for autocomplete (bottom of active pane)
+			maxY := activePaneLayout.StartY + activePaneLayout.Height
+			s.renderAutocomplete(inputState.Autocomplete, cursorX, cursorY, maxY)
 		}
 	}
 

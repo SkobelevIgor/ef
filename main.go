@@ -31,13 +31,24 @@ func parseFileArg(arg string) (string, int) {
 }
 
 func main() {
-	if len(os.Args) < 2 || len(os.Args) > 3 {
-		fmt.Fprintln(os.Stderr, "Usage: ef <filename[:line]> [filename2[:line]]")
+	args := os.Args[1:]
+
+	// Check for -h flag (horizontal split mode)
+	// Default is vertical splits (side-by-side) for modern widescreen displays
+	splitMode := editor.SplitVertical
+	if len(args) > 0 && args[0] == "-h" {
+		splitMode = editor.SplitHorizontal
+		args = args[1:]
+	}
+
+	// Require at least one file
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: ef [-h] <filename[:line]> [filename2[:line]] ...")
 		os.Exit(1)
 	}
 
 	var fileInfos []editor.FileInfo
-	for _, arg := range os.Args[1:] {
+	for _, arg := range args {
 		filename, line := parseFileArg(arg)
 		fileInfos = append(fileInfos, editor.FileInfo{
 			Filename: filename,
@@ -45,7 +56,7 @@ func main() {
 		})
 	}
 
-	ed, err := editor.New(fileInfos)
+	ed, err := editor.New(fileInfos, splitMode)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

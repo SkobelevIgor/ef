@@ -9,6 +9,27 @@ import (
 
 const autoSaveDelay = 200 * time.Millisecond
 
+// SplitMode determines how multiple panes are arranged on screen
+type SplitMode int
+
+const (
+	// SplitHorizontal arranges panes top-to-bottom (stacked)
+	// This is the default when no -v flag is provided
+	SplitHorizontal SplitMode = iota
+
+	// SplitVertical arranges panes left-to-right (side-by-side)
+	// Activated with the -v command line flag
+	SplitVertical
+)
+
+const (
+	// MinPaneHeightHorizontal is the minimum height for horizontal splits
+	MinPaneHeightHorizontal = 3
+
+	// MinPaneWidthVertical is the minimum width for vertical splits
+	MinPaneWidthVertical = 20
+)
+
 // FileInfo contains filename and optional starting line number
 type FileInfo struct {
 	Filename string
@@ -20,6 +41,7 @@ type Editor struct {
 	buffers       []*Buffer
 	activePane    int
 	screen        *Screen
+	splitMode     SplitMode // horizontal or vertical layout
 	lastShiftTime time.Time
 	autoSaveTimer *time.Timer
 	mode          Mode
@@ -45,7 +67,7 @@ type Editor struct {
 }
 
 // New creates a new editor instance
-func New(fileInfos []FileInfo) (*Editor, error) {
+func New(fileInfos []FileInfo, splitMode SplitMode) (*Editor, error) {
 	// Load configuration
 	config := LoadConfig()
 	fileTypeRegistry := NewFileTypeRegistry(config)
@@ -84,6 +106,7 @@ func New(fileInfos []FileInfo) (*Editor, error) {
 		buffers:          buffers,
 		activePane:       0,
 		screen:           scr,
+		splitMode:        splitMode,
 		mode:             ModeNormal,
 		inputState:       NewInputState(),
 		history:          NewHistory(100),
@@ -101,7 +124,7 @@ func (e *Editor) Run() error {
 	defer e.fileWatcher.Close()
 
 	for {
-		e.screen.Render(e.buffers, e.activePane, e.mode, e.inputState)
+		e.screen.Render(e.buffers, e.activePane, e.mode, e.inputState, e.splitMode)
 
 		ev := e.screen.PollEvent()
 
