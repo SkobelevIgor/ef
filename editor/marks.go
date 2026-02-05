@@ -12,3 +12,10 @@ type Mark struct {
 func isValidMarkIdentifier(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
+
+// GlobalMark represents a saved cursor position with buffer reference for cross-file navigation
+type GlobalMark struct {
+	Buffer *Buffer // Pointer to the buffer containing this mark
+	Row    int     // Line number (0-indexed)
+	Col    int     // Column position (0-indexed)
+}

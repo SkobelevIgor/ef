@@ -39,6 +39,9 @@ type Editor struct {
 
 	// Search query persistence (for F4 re-entry)
 	lastSearchQuery string
+
+	// Global marks registry (cross-file navigation)
+	globalMarks map[rune]GlobalMark
 }
 
 // New creates a new editor instance
@@ -87,6 +90,7 @@ func New(fileInfos []FileInfo) (*Editor, error) {
 		fileWatcher:      fw,
 		config:           config,
 		fileTypeRegistry: fileTypeRegistry,
+		globalMarks:      make(map[rune]GlobalMark),
 	}, nil
 }
 
@@ -1979,23 +1983,44 @@ func (e *Editor) handleMarkInput(ev *tcell.EventKey) bool {
 	return false
 }
 
-// setMark saves the current cursor position as a mark
+// setMark saves the current cursor position as a global mark with buffer reference
 func (e *Editor) setMark(id rune) {
 	buf := e.activeBuffer()
-	buf.Marks[id] = Mark{
-		Row: buf.CursorRow,
-		Col: buf.CursorCol,
+	e.globalMarks[id] = GlobalMark{
+		Buffer: buf,
+		Row:    buf.CursorRow,
+		Col:    buf.CursorCol,
 	}
 }
 
-// jumpToMark moves cursor to a previously set mark, with position clamping
+// jumpToMark moves cursor to a previously set mark, with cross-file pane switching
 func (e *Editor) jumpToMark(id rune) {
-	buf := e.activeBuffer()
-
-	mark, exists := buf.Marks[id]
+	mark, exists := e.globalMarks[id]
 	if !exists {
 		return // Mark doesn't exist, do nothing
 	}
+
+	// Find pane index for mark's buffer
+	paneIdx := -1
+	for i, buf := range e.buffers {
+		if buf == mark.Buffer {
+			paneIdx = i
+			break
+		}
+	}
+
+	// Buffer no longer open - mark is invalid
+	if paneIdx == -1 {
+		return
+	}
+
+	// Switch pane if mark is in different buffer
+	if paneIdx != e.activePane {
+		e.activePane = paneIdx
+	}
+
+	// Position cursor with clamping
+	buf := e.buffers[paneIdx]
 
 	// Clamp row to valid range
 	row := mark.Row

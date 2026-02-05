@@ -10,6 +10,7 @@
 - N/A (in-memory buffer - `Buffer.Lines`) (002-autocomplete)
 - Go 1.21+ + github.com/gdamore/tcell/v2 (existing) (003-marks-navigation)
 - N/A (in-memory per-buffer marks, non-persistent) (003-marks-navigation)
+- N/A (in-memory global registry) (004-global-marks)
 
 ## Recent Changes
 - 001-search-mode: Added Go 1.x (existing project) + github.com/gdamore/tcell/v2 (existing)

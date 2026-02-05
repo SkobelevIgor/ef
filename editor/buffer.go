@@ -28,9 +28,6 @@ type Buffer struct {
 
 	// Filetype configuration
 	Config FileTypeConfig
-
-	// Marks for navigation (vim-style marks)
-	Marks map[rune]Mark
 }
 
 // NewBuffer creates a new buffer and loads the file if it exists
@@ -45,7 +42,6 @@ func NewBuffer(filename string) (*Buffer, error) {
 			AutoIndentation: false,
 			ExpandTab:       false,
 		},
-		Marks: make(map[rune]Mark),
 	}
 
 	if _, err := os.Stat(filename); err == nil {
