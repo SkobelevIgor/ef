@@ -1,0 +1,14 @@
+# Binaries
+ef
+ce
+main
+
+# Swap files
+*.swp
+*.swo
+
+# Test files
+test*.txt
+
+./ignore
+

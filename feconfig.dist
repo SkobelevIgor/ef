@@ -1,0 +1,98 @@
+{
+	"file_types": {
+		"go": {
+			"extensions": [".go"],
+			"syntax_highlighting": true,
+			"tabstop": 4,
+			"shiftwidth": 4,
+			"autoindentation": true,
+			"expandtab": false,
+			"syntax_rules": [
+				{"pattern": "//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
+				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "`[^`]*`", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "'([^'\\\\]|\\\\.)'", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "\\b(break|case|chan|const|continue|default|defer|else|fallthrough|for|func|go|goto|if|import|interface|map|package|range|return|select|struct|switch|type|var)\\b", "style": {"color": "yellow", "bold": false}, "priority": 10},
+				{"pattern": "\\b(bool|byte|complex64|complex128|error|float32|float64|int|int8|int16|int32|int64|rune|string|uint|uint8|uint16|uint32|uint64|uintptr)\\b", "style": {"color": "teal", "bold": false}, "priority": 10},
+				{"pattern": "\\b(append|cap|close|complex|copy|delete|imag|len|make|new|panic|print|println|real|recover)\\b", "style": {"color": "aqua", "bold": false}, "priority": 10},
+				{"pattern": "\\.\\w+\\(", "style": {"color": "yellow", "bold": false}, "priority": 10},
+				{"pattern": "\\b(true|false|nil|iota)\\b", "style": {"color": "purple", "bold": false}, "priority": 10},
+				{"pattern": "[\\(\\)\\[\\]\\{\\}]", "style": {"color": "purple", "bold": false}, "priority": 3},
+				{"pattern": "\\b\\d+(\\.\\d+)?\\b", "style": {"color": "blue", "bold": true}, "priority": 5},
+				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "blue", "bold": true}, "priority": 5}
+			]
+		},
+		"python": {
+			"extensions": [".py", ".pyw"],
+			"syntax_highlighting": true,
+			"tabstop": 4,
+			"shiftwidth": 4,
+			"autoindentation": true,
+			"expandtab": true,
+			"syntax_rules": [
+				{"pattern": "#.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
+				{"pattern": "\"\"\"[\\s\\S]*?\"\"\"", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "'''[\\s\\S]*?'''", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "'([^'\\\\]|\\\\.)*'", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "\\b(and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|None|nonlocal|not|or|pass|raise|return|try|while|with|yield)\\b", "style": {"color": "blue", "bold": true}, "priority": 10},
+				{"pattern": "\\b(abs|all|any|ascii|bin|bool|bytearray|bytes|callable|chr|classmethod|compile|complex|delattr|dict|dir|divmod|enumerate|eval|exec|filter|float|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|int|isinstance|issubclass|iter|len|list|locals|map|max|memoryview|min|next|object|oct|open|ord|pow|print|property|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|str|sum|super|tuple|type|vars|zip)\\b", "style": {"color": "aqua", "bold": false}, "priority": 10},
+				{"pattern": "\\b(True|False|None)\\b", "style": {"color": "purple", "bold": false}, "priority": 10},
+				{"pattern": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0o[0-7]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
+			]
+		},
+		"javascript": {
+			"extensions": [".js", ".jsx", ".mjs", ".cjs"],
+			"syntax_highlighting": true,
+			"tabstop": 2,
+			"shiftwidth": 2,
+			"autoindentation": true,
+			"expandtab": true,
+			"syntax_rules": [
+				{"pattern": "//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
+				{"pattern": "`[^`]*`", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "'([^'\\\\]|\\\\.)*'", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "\\b(async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield)\\b", "style": {"color": "blue", "bold": true}, "priority": 10},
+				{"pattern": "\\b(Array|Boolean|Date|Error|Function|JSON|Math|Number|Object|Promise|RegExp|String|console|document|window)\\b", "style": {"color": "teal", "bold": false}, "priority": 10},
+				{"pattern": "\\b(true|false|null|undefined|NaN|Infinity)\\b", "style": {"color": "purple", "bold": false}, "priority": 10},
+				{"pattern": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0o[0-7]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
+			]
+		},
+		"typescript": {
+			"extensions": [".ts", ".tsx"],
+			"syntax_highlighting": true,
+			"tabstop": 2,
+			"shiftwidth": 2,
+			"autoindentation": true,
+			"expandtab": true,
+			"syntax_rules": [
+				{"pattern": "//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
+				{"pattern": "`[^`]*`", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "'([^'\\\\]|\\\\.)*'", "style": {"color": "green", "bold": false}, "priority": 20},
+				{"pattern": "\\b(abstract|as|async|await|break|case|catch|class|const|continue|debugger|declare|default|delete|do|else|enum|export|extends|finally|for|from|function|if|implements|import|in|instanceof|interface|let|module|namespace|never|new|of|private|protected|public|readonly|return|static|super|switch|this|throw|try|type|typeof|unknown|var|void|while|with|yield)\\b", "style": {"color": "blue", "bold": true}, "priority": 10},
+				{"pattern": "\\b(Array|Boolean|Date|Error|Function|JSON|Math|Number|Object|Promise|RegExp|String|console|document|window)\\b", "style": {"color": "teal", "bold": false}, "priority": 10},
+				{"pattern": "\\b(true|false|null|undefined|NaN|Infinity)\\b", "style": {"color": "purple", "bold": false}, "priority": 10},
+				{"pattern": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0o[0-7]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
+			]
+		}
+	},
+	"maps": {
+		"{{": "{}<Esc>ha<Enter><Esc>ko<Tab>",
+		"((": "()<Esc>ha",
+		"[[": "[]<Esc>ha",
+		"\"\"": "\"\"<Esc>ha",
+		"''": "''<Esc>ha",
+		"``": "``<Esc>ha"
+	}
+}

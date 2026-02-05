@@ -1,0 +1,696 @@
+package editor
+
+import (
+	"fmt"
+	"os"
+	"syscall"
+
+	"github.com/gdamore/tcell/v2"
+)
+
+// Screen handles terminal rendering
+type Screen struct {
+	screen tcell.Screen
+}
+
+// NewScreen creates and initializes a new screen
+func NewScreen() (*Screen, error) {
+	s, err := tcell.NewScreen()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.Init(); err != nil {
+		return nil, err
+	}
+
+	s.SetStyle(tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset))
+	s.Clear()
+
+	return &Screen{screen: s}, nil
+}
+
+// Close shuts down the screen
+func (s *Screen) Close() {
+	s.screen.Fini()
+}
+
+// Suspend suspends the screen and sends SIGTSTP to move process to background
+func (s *Screen) Suspend() error {
+	s.screen.Fini()
+	// Send SIGTSTP to suspend the process
+	return syscall.Kill(os.Getpid(), syscall.SIGTSTP)
+}
+
+// Resume reinitializes the screen after being resumed from background
+func (s *Screen) Resume() error {
+	// Create a fresh screen to avoid state issues after Fini()
+	newScreen, err := tcell.NewScreen()
+	if err != nil {
+		return err
+	}
+	if err := newScreen.Init(); err != nil {
+		return err
+	}
+	s.screen = newScreen
+	s.screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset))
+	s.screen.Clear()
+	s.screen.Sync()
+	return nil
+}
+
+// Size returns the screen dimensions
+func (s *Screen) Size() (width, height int) {
+	return s.screen.Size()
+}
+
+// PollEvent waits for and returns the next event
+func (s *Screen) PollEvent() tcell.Event {
+	return s.screen.PollEvent()
+}
+
+// PostEvent injects a custom event into the event queue
+func (s *Screen) PostEvent(ev tcell.Event) error {
+	return s.screen.PostEvent(ev)
+}
+
+// Render draws the buffer content
+func (s *Screen) Render(buffers []*Buffer, activePane int, mode Mode, inputState *InputState) {
+	s.screen.Clear()
+	width, height := s.screen.Size()
+
+	// Check if search is active
+	searchActive := inputState.Search != nil && inputState.Search.Active
+	contentStartY := 0
+
+	if searchActive {
+		s.renderSearchBar(inputState.Search, width)
+		contentStartY = 1
+		height-- // Reduce available height for content
+	}
+
+	if len(buffers) == 1 {
+		// Single pane mode
+		lineNumWidth := getLineNumberWidth(buffers[0])
+		textWidth := width - lineNumWidth
+		buffers[0].AdjustScroll(textWidth, height)
+		s.renderPaneWithSearch(buffers[0], 0, contentStartY, width, height, mode, inputState.Search)
+
+		// Position cursor: in search bar if editing query, otherwise in buffer
+		if searchActive && !inputState.Search.Confirmed {
+			// Cursor in search bar at end of query
+			prompt := "Search: "
+			if inputState.Search.IsReplaceMode {
+				prompt = "Replace: "
+			}
+			cursorX := len(prompt) + len(inputState.Search.Query)
+			s.screen.ShowCursor(cursorX, 0)
+		} else {
+			cursorX, cursorY := getCursorScreenPos(buffers[0], width, lineNumWidth)
+			cursorY += contentStartY
+			s.screen.ShowCursor(cursorX, cursorY)
+
+			// Render autocomplete dropdown if active
+			if inputState.Autocomplete != nil && inputState.Autocomplete.Active {
+				s.renderAutocomplete(inputState.Autocomplete, cursorX, cursorY, height+contentStartY)
+			}
+		}
+	} else {
+		// Split view - two panes
+		leftWidth := width / 2
+		rightWidth := width - leftWidth - 1 // -1 for separator
+
+		// Adjust scroll for both panes
+		leftLineNumWidth := getLineNumberWidth(buffers[0])
+		rightLineNumWidth := getLineNumberWidth(buffers[1])
+		buffers[0].AdjustScroll(leftWidth-leftLineNumWidth, height)
+		buffers[1].AdjustScroll(rightWidth-rightLineNumWidth, height)
+
+		// Render left pane (use mode only for active pane)
+		leftMode := ModeNormal
+		if activePane == 0 {
+			leftMode = mode
+		}
+		s.renderPaneWithSearch(buffers[0], 0, contentStartY, leftWidth, height, leftMode, inputState.Search)
+
+		// Draw vertical separator
+		separatorStyle := tcell.StyleDefault.Foreground(tcell.ColorGray)
+		for y := contentStartY; y < contentStartY+height; y++ {
+			s.screen.SetContent(leftWidth, y, '│', nil, separatorStyle)
+		}
+
+		// Render right pane
+		rightMode := ModeNormal
+		if activePane == 1 {
+			rightMode = mode
+		}
+		s.renderPaneWithSearch(buffers[1], leftWidth+1, contentStartY, rightWidth, height, rightMode, inputState.Search)
+
+		// Position cursor: in search bar if editing query, otherwise in active pane
+		if searchActive && !inputState.Search.Confirmed {
+			// Cursor in search bar at end of query
+			prompt := "Search: "
+			if inputState.Search.IsReplaceMode {
+				prompt = "Replace: "
+			}
+			cursorX := len(prompt) + len(inputState.Search.Query)
+			s.screen.ShowCursor(cursorX, 0)
+		} else {
+			activeBuf := buffers[activePane]
+			lineNumWidth := getLineNumberWidth(activeBuf)
+			var paneWidth int
+			if activePane == 0 {
+				paneWidth = leftWidth
+			} else {
+				paneWidth = rightWidth
+			}
+			cursorX, cursorY := getCursorScreenPos(activeBuf, paneWidth, lineNumWidth)
+			cursorY += contentStartY
+			if activePane == 1 {
+				cursorX += leftWidth + 1
+			}
+			s.screen.ShowCursor(cursorX, cursorY)
+
+			// Render autocomplete dropdown if active
+			if inputState.Autocomplete != nil && inputState.Autocomplete.Active {
+				s.renderAutocomplete(inputState.Autocomplete, cursorX, cursorY, height+contentStartY)
+			}
+		}
+	}
+
+	s.screen.Show()
+}
+
+// renderSearchBar renders the search input bar at the top of the screen
+func (s *Screen) renderSearchBar(search *SearchState, width int) {
+	style := tcell.StyleDefault.Background(tcell.ColorDarkBlue).Foreground(tcell.ColorWhite)
+
+	// Clear the row
+	for x := 0; x < width; x++ {
+		s.screen.SetContent(x, 0, ' ', nil, style)
+	}
+
+	// Determine prompt text
+	prompt := "Search: "
+	if search.IsReplaceMode {
+		prompt = "Replace: "
+	}
+
+	// Draw prompt
+	x := 0
+	for _, ch := range prompt {
+		if x < width {
+			s.screen.SetContent(x, 0, ch, nil, style)
+			x++
+		}
+	}
+
+	// Draw query text
+	for _, ch := range search.Query {
+		if x < width {
+			s.screen.SetContent(x, 0, ch, nil, style)
+			x++
+		}
+	}
+
+	// Show "No matches" feedback if query has no results
+	if search.NoMatches && search.Query != "" {
+		feedback := " (No matches)"
+		feedbackStyle := style.Foreground(tcell.ColorRed)
+		for _, ch := range feedback {
+			if x < width {
+				s.screen.SetContent(x, 0, ch, nil, feedbackStyle)
+				x++
+			}
+		}
+	} else if len(search.Matches) > 0 {
+		// Show match count
+		matchInfo := fmt.Sprintf(" [%d/%d]", search.CurrentIndex+1, len(search.Matches))
+		for _, ch := range matchInfo {
+			if x < width {
+				s.screen.SetContent(x, 0, ch, nil, style)
+				x++
+			}
+		}
+	}
+}
+
+// lineNumberWidth calculates the width needed for line numbers
+func lineNumberWidth(totalLines int) int {
+	width := 1
+	for totalLines >= 10 {
+		totalLines /= 10
+		width++
+	}
+	if width < 3 {
+		width = 3 // Minimum width for aesthetics
+	}
+	return width + 1 // +1 for space after number
+}
+
+// renderPane draws a buffer in a specific area of the screen with line wrapping
+func (s *Screen) renderPane(buf *Buffer, startX, startY, width, height int, mode Mode) {
+	lineNumWidth := lineNumberWidth(len(buf.Lines))
+	lineNumStyle := tcell.StyleDefault.Foreground(tcell.ColorGreen)
+	wrapStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+	selectionStyle := tcell.StyleDefault.Reverse(true)
+
+	// Mode-specific style for current line number only
+	var currentLineNumStyle tcell.Style
+	switch mode {
+	case ModeNormal:
+		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorBlue).Foreground(tcell.ColorWhite).Bold(true)
+	case ModeInsert:
+		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack).Bold(true)
+	case ModeVisual:
+		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorPurple).Foreground(tcell.ColorWhite).Bold(true)
+	}
+
+	textWidth := width - lineNumWidth
+	if textWidth < 1 {
+		textWidth = 1
+	}
+
+	screenRow := 0
+	for lineIdx := buf.ScrollOffset; lineIdx < len(buf.Lines) && screenRow < height; lineIdx++ {
+		line := buf.Lines[lineIdx]
+		isCurrentLine := lineIdx == buf.CursorRow
+
+		// Calculate relative line number
+		var lineNum int
+		var lineNumStyleToUse tcell.Style
+		if isCurrentLine {
+			lineNum = lineIdx + 1 // Absolute line number for current line
+			lineNumStyleToUse = currentLineNumStyle
+		} else {
+			lineNum = lineIdx - buf.CursorRow
+			if lineNum < 0 {
+				lineNum = -lineNum
+			}
+			lineNumStyleToUse = lineNumStyle
+		}
+
+		// Handle empty lines
+		if len(line) == 0 {
+			// Draw line number
+			numStr := fmt.Sprintf("%*d ", lineNumWidth-1, lineNum)
+			for i, ch := range numStr {
+				if startX+i < startX+width {
+					s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lineNumStyleToUse)
+				}
+			}
+			screenRow++
+			continue
+		}
+
+		// Draw line with wrapping
+		charIdx := 0
+		isFirstWrap := true
+		for charIdx < len(line) && screenRow < height {
+			// Draw line number or wrap indicator
+			if isFirstWrap {
+				numStr := fmt.Sprintf("%*d ", lineNumWidth-1, lineNum)
+				for i, ch := range numStr {
+					if startX+i < startX+width {
+						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lineNumStyleToUse)
+					}
+				}
+				isFirstWrap = false
+			} else {
+				// Draw wrap continuation indicator
+				wrapIndicator := fmt.Sprintf("%*s ", lineNumWidth-1, "↪")
+				wrapStyleToUse := wrapStyle
+				if isCurrentLine {
+					wrapStyleToUse = currentLineNumStyle
+				}
+				for i, ch := range wrapIndicator {
+					if startX+i < startX+width {
+						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, wrapStyleToUse)
+					}
+				}
+			}
+
+			// Get syntax highlighting tokens for this line (if available)
+			var tokens []Token
+			if buf.HighlightCache != nil {
+				tokens = buf.HighlightCache.GetTokens(lineIdx, line, buf.Lines)
+			}
+
+			// Get tab stop width from buffer config
+			tabStop := buf.Config.TabStop
+			if tabStop <= 0 {
+				tabStop = 4
+			}
+
+			// Draw text for this screen row
+			// col = visual column on screen, charIdx = index into line runes
+			textStart := startX + lineNumWidth
+			col := 0
+			for col < textWidth && charIdx < len(line) {
+				ch := line[charIdx]
+				charStyle := tcell.StyleDefault
+
+				// Apply syntax highlighting
+				if len(tokens) > 0 {
+					if style, ok := GetStyleAt(tokens, charIdx); ok {
+						charStyle = style
+					}
+				}
+
+				// Selection takes precedence over syntax highlighting
+				if buf.IsInSelection(lineIdx, charIdx) {
+					charStyle = selectionStyle
+				}
+
+				if ch == '\t' {
+					// Expand tab to spaces up to next tab stop
+					spacesToNextStop := tabStop - (col % tabStop)
+					for i := 0; i < spacesToNextStop && col < textWidth; i++ {
+						s.screen.SetContent(textStart+col, startY+screenRow, ' ', nil, charStyle)
+						col++
+					}
+				} else {
+					s.screen.SetContent(textStart+col, startY+screenRow, ch, nil, charStyle)
+					col++
+				}
+				charIdx++
+			}
+			screenRow++
+		}
+	}
+}
+
+// renderPaneWithSearch draws a buffer with optional search match highlighting
+func (s *Screen) renderPaneWithSearch(buf *Buffer, startX, startY, width, height int, mode Mode, search *SearchState) {
+	lineNumWidth := lineNumberWidth(len(buf.Lines))
+	lineNumStyle := tcell.StyleDefault.Foreground(tcell.ColorGreen)
+	wrapStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+	selectionStyle := tcell.StyleDefault.Reverse(true)
+	searchMatchStyle := tcell.StyleDefault.Background(tcell.ColorYellow).Foreground(tcell.ColorBlack)
+	currentMatchStyle := tcell.StyleDefault.Background(tcell.ColorOrange).Foreground(tcell.ColorBlack).Bold(true)
+
+	// Mode-specific style for current line number only
+	var currentLineNumStyle tcell.Style
+	switch mode {
+	case ModeNormal:
+		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorBlue).Foreground(tcell.ColorWhite).Bold(true)
+	case ModeInsert:
+		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack).Bold(true)
+	case ModeVisual:
+		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorPurple).Foreground(tcell.ColorWhite).Bold(true)
+	}
+
+	textWidth := width - lineNumWidth
+	if textWidth < 1 {
+		textWidth = 1
+	}
+
+	screenRow := 0
+	for lineIdx := buf.ScrollOffset; lineIdx < len(buf.Lines) && screenRow < height; lineIdx++ {
+		line := buf.Lines[lineIdx]
+		isCurrentLine := lineIdx == buf.CursorRow
+
+		// Calculate relative line number
+		var lineNum int
+		var lineNumStyleToUse tcell.Style
+		if isCurrentLine {
+			lineNum = lineIdx + 1 // Absolute line number for current line
+			lineNumStyleToUse = currentLineNumStyle
+		} else {
+			lineNum = lineIdx - buf.CursorRow
+			if lineNum < 0 {
+				lineNum = -lineNum
+			}
+			lineNumStyleToUse = lineNumStyle
+		}
+
+		// Handle empty lines
+		if len(line) == 0 {
+			// Draw line number
+			numStr := fmt.Sprintf("%*d ", lineNumWidth-1, lineNum)
+			for i, ch := range numStr {
+				if startX+i < startX+width {
+					s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lineNumStyleToUse)
+				}
+			}
+			screenRow++
+			continue
+		}
+
+		// Draw line with wrapping
+		charIdx := 0
+		isFirstWrap := true
+		for charIdx < len(line) && screenRow < height {
+			// Draw line number or wrap indicator
+			if isFirstWrap {
+				numStr := fmt.Sprintf("%*d ", lineNumWidth-1, lineNum)
+				for i, ch := range numStr {
+					if startX+i < startX+width {
+						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lineNumStyleToUse)
+					}
+				}
+				isFirstWrap = false
+			} else {
+				// Draw wrap continuation indicator
+				wrapIndicator := fmt.Sprintf("%*s ", lineNumWidth-1, "↪")
+				wrapStyleToUse := wrapStyle
+				if isCurrentLine {
+					wrapStyleToUse = currentLineNumStyle
+				}
+				for i, ch := range wrapIndicator {
+					if startX+i < startX+width {
+						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, wrapStyleToUse)
+					}
+				}
+			}
+
+			// Get syntax highlighting tokens for this line (if available)
+			var tokens []Token
+			if buf.HighlightCache != nil {
+				tokens = buf.HighlightCache.GetTokens(lineIdx, line, buf.Lines)
+			}
+
+			// Get tab stop width from buffer config
+			tabStop := buf.Config.TabStop
+			if tabStop <= 0 {
+				tabStop = 4
+			}
+
+			// Draw text for this screen row
+			// col = visual column on screen, charIdx = index into line runes
+			textStart := startX + lineNumWidth
+			col := 0
+			for col < textWidth && charIdx < len(line) {
+				ch := line[charIdx]
+				charStyle := tcell.StyleDefault
+
+				// Apply syntax highlighting
+				if len(tokens) > 0 {
+					if style, ok := GetStyleAt(tokens, charIdx); ok {
+						charStyle = style
+					}
+				}
+
+				// Selection takes precedence over syntax highlighting
+				if buf.IsInSelection(lineIdx, charIdx) {
+					charStyle = selectionStyle
+				}
+
+				// Search match highlighting takes highest precedence
+				if search != nil && search.Active && len(search.Matches) > 0 {
+					matchIdx, inMatch := isInSearchMatch(search, lineIdx, charIdx)
+					if inMatch {
+						if matchIdx == search.CurrentIndex {
+							charStyle = currentMatchStyle
+						} else {
+							charStyle = searchMatchStyle
+						}
+					}
+				}
+
+				if ch == '\t' {
+					// Expand tab to spaces up to next tab stop
+					spacesToNextStop := tabStop - (col % tabStop)
+					for i := 0; i < spacesToNextStop && col < textWidth; i++ {
+						s.screen.SetContent(textStart+col, startY+screenRow, ' ', nil, charStyle)
+						col++
+					}
+				} else {
+					s.screen.SetContent(textStart+col, startY+screenRow, ch, nil, charStyle)
+					col++
+				}
+				charIdx++
+			}
+			screenRow++
+		}
+	}
+}
+
+// isInSearchMatch checks if a position is within any search match
+// Returns the match index and whether position is in a match
+func isInSearchMatch(search *SearchState, row, col int) (int, bool) {
+	for i, match := range search.Matches {
+		if match.Row == row && col >= match.Col && col < match.Col+match.Length {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// getLineNumberWidth returns the line number gutter width for a buffer
+func getLineNumberWidth(buf *Buffer) int {
+	return lineNumberWidth(len(buf.Lines))
+}
+
+// getVisualColumn calculates the visual column position accounting for tab expansion
+func getVisualColumn(line []rune, charCol int, tabStop int) int {
+	if tabStop <= 0 {
+		tabStop = 4
+	}
+	visualCol := 0
+	for i := 0; i < charCol && i < len(line); i++ {
+		if line[i] == '\t' {
+			// Tab expands to next tab stop
+			visualCol += tabStop - (visualCol % tabStop)
+		} else {
+			visualCol++
+		}
+	}
+	return visualCol
+}
+
+// getVisualLineWidth calculates the visual width of a line accounting for tabs
+func getVisualLineWidth(line []rune, tabStop int) int {
+	return getVisualColumn(line, len(line), tabStop)
+}
+
+// getCursorScreenPos calculates the screen position of the cursor with line wrapping
+func getCursorScreenPos(buf *Buffer, paneWidth, lineNumWidth int) (screenX, screenY int) {
+	textWidth := paneWidth - lineNumWidth
+	if textWidth < 1 {
+		textWidth = 1
+	}
+
+	tabStop := buf.Config.TabStop
+	if tabStop <= 0 {
+		tabStop = 4
+	}
+
+	screenY = 0
+
+	// Count screen rows used by lines from ScrollOffset to cursor
+	for lineIdx := buf.ScrollOffset; lineIdx < buf.CursorRow && lineIdx < len(buf.Lines); lineIdx++ {
+		line := buf.Lines[lineIdx]
+		if len(line) == 0 {
+			screenY++
+		} else {
+			visualWidth := getVisualLineWidth(line, tabStop)
+			screenY += (visualWidth + textWidth - 1) / textWidth // Ceiling division
+		}
+	}
+
+	// Calculate position within the cursor's line
+	cursorLine := buf.Lines[buf.CursorRow]
+	if len(cursorLine) == 0 || buf.CursorCol == 0 {
+		screenX = lineNumWidth
+	} else {
+		// Calculate visual column accounting for tabs
+		visualCol := getVisualColumn(cursorLine, buf.CursorCol, tabStop)
+		// Which wrapped row is the cursor on?
+		wrapRow := visualCol / textWidth
+		screenY += wrapRow
+		screenX = lineNumWidth + (visualCol % textWidth)
+	}
+
+	return screenX, screenY
+}
+
+// renderAutocomplete draws the autocomplete dropdown overlay
+func (s *Screen) renderAutocomplete(ac *AutocompleteState, cursorX, cursorY, screenHeight int) {
+	if ac == nil || len(ac.Suggestions) == 0 {
+		return
+	}
+
+	// Calculate dropdown dimensions with extra horizontal padding
+	maxWidth := 0
+	for _, sug := range ac.Suggestions {
+		if len(sug.Word) > maxWidth {
+			maxWidth = len(sug.Word)
+		}
+	}
+	horizontalPadding := 2 // spaces on each side
+	dropdownWidth := maxWidth + (horizontalPadding * 2)
+	dropdownHeight := len(ac.Suggestions)
+
+	// Determine position (below or above cursor)
+	spaceBelow := screenHeight - cursorY - 1
+	var startY int
+	showAbove := false
+
+	if spaceBelow >= dropdownHeight {
+		startY = cursorY + 1
+	} else {
+		// Try to show above
+		startY = cursorY - dropdownHeight
+		showAbove = true
+		if startY < 0 {
+			// Not enough space above either, truncate
+			if spaceBelow > cursorY {
+				// More space below, show truncated below
+				startY = cursorY + 1
+				dropdownHeight = spaceBelow
+				showAbove = false
+			} else {
+				// More space above, show truncated above
+				dropdownHeight = cursorY
+				startY = 0
+			}
+		}
+	}
+
+	if dropdownHeight <= 0 {
+		return
+	}
+
+	// Update state for rendering position
+	ac.ShowAbove = showAbove
+
+	// Styles: white on black for selected, black on purple for unselected
+	unselectedStyle := tcell.StyleDefault.Background(tcell.ColorPurple).Foreground(tcell.ColorBlack)
+	selectedStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite).Bold(true)
+
+	// Draw dropdown
+	displayCount := dropdownHeight
+	if displayCount > len(ac.Suggestions) {
+		displayCount = len(ac.Suggestions)
+	}
+
+	for i := 0; i < displayCount; i++ {
+		sug := ac.Suggestions[i]
+		style := unselectedStyle
+		if i == ac.SelectedIdx {
+			style = selectedStyle
+		}
+
+		y := startY + i
+		x := cursorX
+
+		// Draw left padding
+		for p := 0; p < horizontalPadding; p++ {
+			s.screen.SetContent(x, y, ' ', nil, style)
+			x++
+		}
+
+		// Draw suggestion text
+		for _, r := range sug.Word {
+			s.screen.SetContent(x, y, r, nil, style)
+			x++
+		}
+
+		// Pad remaining width (text + right padding)
+		for x < cursorX+dropdownWidth {
+			s.screen.SetContent(x, y, ' ', nil, style)
+			x++
+		}
+	}
+}
