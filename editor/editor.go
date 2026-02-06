@@ -186,9 +186,10 @@ func (e *Editor) handleExternalFileChange(filename string) {
 		return
 	}
 
-	// If in insert mode, commit the current session first
+	// If in insert mode, commit the current session for the ACTIVE buffer
+	// (not the externally changed file, which may be different)
 	if e.mode == ModeInsert {
-		e.history.CommitSession(buf.Lines)
+		e.history.CommitSession(e.activeBuffer().Lines)
 		e.mode = ModeNormal
 	}
 
@@ -208,6 +209,7 @@ func (e *Editor) handleExternalFileChange(filename string) {
 	// Record the change in history so user can undo
 	e.history.Push(&Change{
 		Type:    ChangeReplace,
+		Buffer:  buf,
 		Row:     cursorRow,
 		Col:     cursorCol,
 		Text:    copyLines(buf.Lines),
@@ -254,7 +256,16 @@ func (e *Editor) checkDoubleShift(ev *tcell.EventKey) bool {
 
 	// Shift+Tab is a reliable way to switch panes
 	if ev.Key() == tcell.KeyBacktab {
+		// If in insert mode, commit session for current buffer before switching
+		if e.mode == ModeInsert {
+			e.history.CommitSession(e.activeBuffer().Lines)
+		}
 		e.activePane = (e.activePane + 1) % len(e.buffers)
+		// If in insert mode, start new session for the new buffer
+		if e.mode == ModeInsert {
+			buf := e.activeBuffer()
+			e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		}
 		return true
 	}
 
@@ -267,7 +278,16 @@ func (e *Editor) checkDoubleShift(ev *tcell.EventKey) bool {
 		now := time.Now()
 		if !e.lastShiftTime.IsZero() && now.Sub(e.lastShiftTime) < 400*time.Millisecond {
 			// Double shift detected - switch panes
+			// If in insert mode, commit session for current buffer before switching
+			if e.mode == ModeInsert {
+				e.history.CommitSession(e.activeBuffer().Lines)
+			}
 			e.activePane = (e.activePane + 1) % len(e.buffers)
+			// If in insert mode, start new session for the new buffer
+			if e.mode == ModeInsert {
+				buf := e.activeBuffer()
+				e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+			}
 			e.lastShiftTime = time.Time{} // Reset to prevent triple-switch
 			return true
 		}
@@ -469,41 +489,41 @@ func (e *Editor) executeMappingNormalRune(r rune) {
 
 	// Mode switching
 	case 'i':
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 	case 'a':
 		// Append after cursor
 		if buf.CursorCol < len(buf.Lines[buf.CursorRow]) {
 			buf.CursorCol++
 		}
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 	case 'A':
 		// Append at end of line
 		buf.MoveToLineEnd()
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 	case 'I':
 		// Insert at beginning of line
 		buf.MoveToLineStart()
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 	case 'o':
 		// Open line below
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		buf.OpenLineBelow()
 		e.mode = ModeInsert
 		e.scheduleAutoSave()
 	case 'O':
 		// Open line above
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		buf.OpenLineAbove()
 		e.mode = ModeInsert
 		e.scheduleAutoSave()
 
 	// Deletion
 	case 'x':
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		buf.DeleteCharAtCursor()
 		e.history.CommitSession(buf.Lines)
 		e.scheduleAutoSave()
@@ -705,7 +725,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 
 	// Mode switching
 	case 'i':
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 		e.inputState.Reset()
 	case 'a':
@@ -713,31 +733,31 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		if buf.CursorCol < len(buf.Lines[buf.CursorRow]) {
 			buf.CursorCol++
 		}
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 		e.inputState.Reset()
 	case 'A':
 		// Append at end of line
 		buf.MoveToLineEnd()
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 		e.inputState.Reset()
 	case 'I':
 		// Insert at beginning of line
 		buf.MoveToLineStart()
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 		e.inputState.Reset()
 	case 'o':
 		// Open line below - snapshot before modification
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		buf.OpenLineBelow()
 		e.mode = ModeInsert
 		e.inputState.Reset()
 		e.scheduleAutoSave()
 	case 'O':
 		// Open line above - snapshot before modification
-		e.history.StartSession(buf.CursorRow, buf.CursorCol, buf.Lines)
+		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
 		buf.OpenLineAbove()
 		e.mode = ModeInsert
 		e.inputState.Reset()
@@ -831,7 +851,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		if len(deletedChars) > 0 {
 			e.clipboard = [][]rune{deletedChars}
 			e.clipboardLine = false
-			e.history.RecordDelete(buf.CursorRow, startCol, [][]rune{deletedChars})
+			e.history.RecordDelete(buf, buf.CursorRow, startCol, [][]rune{deletedChars})
 		}
 		e.scheduleAutoSave()
 		e.inputState.Reset()
@@ -844,6 +864,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 			e.pasteAfter()
 			e.history.Push(&Change{
 				Type:    ChangeReplace,
+				Buffer:  buf,
 				Row:     cursorRow,
 				Col:     cursorCol,
 				Text:    copyLines(buf.Lines),
@@ -860,6 +881,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 			e.pasteBefore()
 			e.history.Push(&Change{
 				Type:    ChangeReplace,
+				Buffer:  buf,
 				Row:     cursorRow,
 				Col:     cursorCol,
 				Text:    copyLines(buf.Lines),
@@ -976,7 +998,20 @@ func (e *Editor) undo() {
 		return
 	}
 
-	buf := e.activeBuffer()
+	// Use the buffer from the change, not the active buffer
+	buf := change.Buffer
+	if buf == nil {
+		// Fallback for legacy changes without buffer reference
+		buf = e.activeBuffer()
+	}
+
+	// Switch to the correct pane if needed
+	for i, b := range e.buffers {
+		if b == buf {
+			e.activePane = i
+			break
+		}
+	}
 
 	switch change.Type {
 	case ChangeInsert:
@@ -1097,7 +1132,20 @@ func (e *Editor) redo() {
 		return
 	}
 
-	buf := e.activeBuffer()
+	// Use the buffer from the change, not the active buffer
+	buf := change.Buffer
+	if buf == nil {
+		// Fallback for legacy changes without buffer reference
+		buf = e.activeBuffer()
+	}
+
+	// Switch to the correct pane if needed
+	for i, b := range e.buffers {
+		if b == buf {
+			e.activePane = i
+			break
+		}
+	}
 
 	switch change.Type {
 	case ChangeInsert:
@@ -1295,7 +1343,7 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 		e.clipboard = deleted
 		e.clipboardLine = true
 		// Record for undo - treat as deletion of full lines
-		e.history.RecordDeleteLines(startRow, deleted)
+		e.history.RecordDeleteLines(buf, startRow, deleted)
 		e.scheduleAutoSave()
 
 	// yy - yank line(s)
@@ -1319,7 +1367,7 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 		deleted := buf.DeleteRange(startRow, startCol, endRow, endCol)
 		e.clipboard = deleted
 		e.clipboardLine = false
-		e.history.RecordDelete(startRow, startCol, deleted)
+		e.history.RecordDelete(buf, startRow, startCol, deleted)
 		e.scheduleAutoSave()
 
 	// db - delete word backward
@@ -1332,7 +1380,7 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 		deleted := buf.DeleteRange(startRow, startCol, endRow, endCol)
 		e.clipboard = deleted
 		e.clipboardLine = false
-		e.history.RecordDelete(startRow, startCol, deleted)
+		e.history.RecordDelete(buf, startRow, startCol, deleted)
 		e.scheduleAutoSave()
 
 	// d$ - delete to end of line
@@ -1344,7 +1392,7 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 			buf.Lines[buf.CursorRow] = line[:buf.CursorCol]
 			e.clipboard = [][]rune{deleted}
 			e.clipboardLine = false
-			e.history.RecordDelete(buf.CursorRow, buf.CursorCol, [][]rune{deleted})
+			e.history.RecordDelete(buf, buf.CursorRow, buf.CursorCol, [][]rune{deleted})
 			buf.Modified = true
 			e.scheduleAutoSave()
 		}
@@ -1356,7 +1404,7 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 			deleted := make([]rune, buf.CursorCol)
 			copy(deleted, line[:buf.CursorCol])
 			buf.Lines[buf.CursorRow] = line[buf.CursorCol:]
-			e.history.RecordDelete(buf.CursorRow, 0, [][]rune{deleted})
+			e.history.RecordDelete(buf, buf.CursorRow, 0, [][]rune{deleted})
 			buf.CursorCol = 0
 			e.clipboard = [][]rune{deleted}
 			e.clipboardLine = false
@@ -1551,7 +1599,7 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 			startRow, startCol, endRow, endCol := buf.GetSelection()
 			e.clipboard = buf.DeleteRange(startRow, startCol, endRow, endCol+1)
 			e.clipboardLine = false
-			e.history.RecordDelete(startRow, startCol, e.clipboard)
+			e.history.RecordDelete(buf, startRow, startCol, e.clipboard)
 			e.mode = ModeNormal
 			buf.ClearSelection()
 			e.inputState.Reset()
@@ -1595,6 +1643,7 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 				// Record the combined delete+paste operation for undo
 				e.history.Push(&Change{
 					Type:    ChangeReplace,
+					Buffer:  buf,
 					Row:     startRow,
 					Col:     startCol,
 					Text:    copyLines(buf.Lines),
@@ -1856,6 +1905,7 @@ func (e *Editor) replaceCurrentMatch() {
 	// Record in undo history as individual change
 	e.history.Push(&Change{
 		Type:    ChangeReplace,
+		Buffer:  buf,
 		Row:     match.Row,
 		Col:     match.Col,
 		Text:    copyLines(buf.Lines),

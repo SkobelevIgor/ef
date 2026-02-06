@@ -12,6 +12,7 @@ const (
 // Change represents a single undoable change
 type Change struct {
 	Type         ChangeType
+	Buffer       *Buffer  // The buffer this change belongs to
 	Row          int
 	Col          int
 	Text         [][]rune // Text that was inserted (for undo of insert) or deleted (for redo of delete)
@@ -28,6 +29,7 @@ type History struct {
 	inSession bool    // Whether we're in an Insert mode session
 
 	// Session tracking for insert mode
+	sessionBuffer   *Buffer  // Buffer being edited in current session
 	sessionStartRow int
 	sessionStartCol int
 	sessionLines    [][]rune // Snapshot of lines at session start
@@ -102,9 +104,10 @@ func (h *History) Redo() *Change {
 
 // StartSession begins a new Insert mode session
 // All changes during this session will be grouped as one undo unit
-func (h *History) StartSession(row, col int, lines [][]rune) {
+func (h *History) StartSession(buf *Buffer, row, col int, lines [][]rune) {
 	h.inSession = true
 	h.pending = nil
+	h.sessionBuffer = buf
 	h.sessionStartRow = row
 	h.sessionStartCol = col
 	// Take a snapshot of the lines
@@ -114,7 +117,7 @@ func (h *History) StartSession(row, col int, lines [][]rune) {
 // CommitSession ends the Insert mode session and commits pending changes
 // currentLines is the current state of the buffer after editing
 func (h *History) CommitSession(currentLines [][]rune) {
-	if h.inSession && h.sessionLines != nil {
+	if h.inSession && h.sessionLines != nil && h.sessionBuffer != nil {
 		// Compare snapshots to determine what changed
 		// For simplicity, we record this as a replacement of the entire affected region
 		oldLineCount := len(h.sessionLines)
@@ -137,6 +140,7 @@ func (h *History) CommitSession(currentLines [][]rune) {
 			h.redoStack = nil
 			h.undoStack = append(h.undoStack, &Change{
 				Type:    ChangeReplace,
+				Buffer:  h.sessionBuffer,
 				Row:     h.sessionStartRow,
 				Col:     h.sessionStartCol,
 				Text:    copyLines(currentLines), // New state (for redo)
@@ -145,33 +149,37 @@ func (h *History) CommitSession(currentLines [][]rune) {
 		}
 	}
 	h.inSession = false
+	h.sessionBuffer = nil
 	h.sessionLines = nil
 }
 
 // RecordInsert records an insert operation
-func (h *History) RecordInsert(row, col int, text [][]rune) {
+func (h *History) RecordInsert(buf *Buffer, row, col int, text [][]rune) {
 	h.Push(&Change{
-		Type: ChangeInsert,
-		Row:  row,
-		Col:  col,
-		Text: copyLines(text),
+		Type:   ChangeInsert,
+		Buffer: buf,
+		Row:    row,
+		Col:    col,
+		Text:   copyLines(text),
 	})
 }
 
 // RecordDelete records a delete operation
-func (h *History) RecordDelete(row, col int, text [][]rune) {
+func (h *History) RecordDelete(buf *Buffer, row, col int, text [][]rune) {
 	h.Push(&Change{
-		Type: ChangeDelete,
-		Row:  row,
-		Col:  col,
-		Text: copyLines(text),
+		Type:   ChangeDelete,
+		Buffer: buf,
+		Row:    row,
+		Col:    col,
+		Text:   copyLines(text),
 	})
 }
 
 // RecordDeleteLines records a whole-line deletion (dd command)
-func (h *History) RecordDeleteLines(row int, lines [][]rune) {
+func (h *History) RecordDeleteLines(buf *Buffer, row int, lines [][]rune) {
 	h.Push(&Change{
 		Type:         ChangeDelete,
+		Buffer:       buf,
 		Row:          row,
 		Col:          0,
 		Text:         copyLines(lines),
