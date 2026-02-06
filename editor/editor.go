@@ -2166,21 +2166,24 @@ func (e *Editor) acceptAutocomplete() {
 	buf := e.activeBuffer()
 	line := buf.Lines[buf.CursorRow]
 
-	// Calculate the completion (part of word not yet typed)
-	completion := []rune(selected.Word[len(ac.Prefix):])
-	if len(completion) == 0 {
-		e.inputState.Autocomplete = nil
-		return
+	// Replace the typed prefix with the full suggested word
+	// Cursor is at the end of the typed prefix
+	prefixLen := len([]rune(ac.Prefix))
+	prefixStart := buf.CursorCol - prefixLen
+	if prefixStart < 0 {
+		prefixStart = 0
 	}
 
-	// Insert completion at cursor position
-	newLine := make([]rune, len(line)+len(completion))
-	copy(newLine[:buf.CursorCol], line[:buf.CursorCol])
-	copy(newLine[buf.CursorCol:], completion)
-	copy(newLine[buf.CursorCol+len(completion):], line[buf.CursorCol:])
+	fullWord := []rune(selected.Word)
+
+	// Build new line: before prefix + full word + after cursor
+	newLine := make([]rune, prefixStart+len(fullWord)+len(line)-buf.CursorCol)
+	copy(newLine[:prefixStart], line[:prefixStart])
+	copy(newLine[prefixStart:], fullWord)
+	copy(newLine[prefixStart+len(fullWord):], line[buf.CursorCol:])
 
 	buf.Lines[buf.CursorRow] = newLine
-	buf.CursorCol += len(completion)
+	buf.CursorCol = prefixStart + len(fullWord)
 	buf.Modified = true
 
 	e.inputState.Autocomplete = nil
