@@ -12,6 +12,7 @@
 - N/A (in-memory per-buffer marks, non-persistent) (003-marks-navigation)
 - N/A (in-memory global registry) (004-global-marks)
 - Go 1.21+ + github.com/gdamore/tcell/v2 (terminal rendering) (005-multi-file-splits)
+- In-memory buffers with file persistence via existing Save/Load (006-shared-buffer)
 
 ## Recent Changes
 - 001-search-mode: Added Go 1.x (existing project) + github.com/gdamore/tcell/v2 (existing)
