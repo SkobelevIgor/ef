@@ -38,8 +38,11 @@ type FileInfo struct {
 
 // Editor is the main editor struct
 type Editor struct {
-	buffers       []*Buffer
-	activePane    int
+	// Shared buffer model: bufferRegistry holds unique buffers, panes reference them
+	bufferRegistry map[string]*Buffer // Buffers keyed by absolute file path
+	panes          []*Pane            // Visual panes (each references a buffer)
+	activePaneIdx  int                // Index of currently active pane
+
 	screen        *Screen
 	splitMode     SplitMode // horizontal or vertical layout
 	lastShiftTime time.Time
@@ -66,23 +69,100 @@ type Editor struct {
 	globalMarks map[rune]GlobalMark
 }
 
+// activePane returns the currently active pane
+func (e *Editor) activePane() *Pane {
+	return e.panes[e.activePaneIdx]
+}
+
+// activeBuffer returns the buffer of the currently active pane
+func (e *Editor) activeBuffer() *Buffer {
+	return e.activePane().Buffer
+}
+
+// getOrCreateBuffer returns an existing buffer for the file or creates a new one
+func (e *Editor) getOrCreateBuffer(filename string) (*Buffer, error) {
+	absPath, err := filepath.Abs(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if buffer already exists
+	if buf, exists := e.bufferRegistry[absPath]; exists {
+		return buf, nil
+	}
+
+	// Create new buffer
+	buf, err := NewBufferWithRegistry(filename, e.fileTypeRegistry)
+	if err != nil {
+		return nil, err
+	}
+
+	// Register buffer
+	e.bufferRegistry[absPath] = buf
+	return buf, nil
+}
+
+// getPanesForBuffer returns all panes viewing the given buffer
+func (e *Editor) getPanesForBuffer(buf *Buffer) []*Pane {
+	var result []*Pane
+	for _, p := range e.panes {
+		if p.Buffer == buf {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// adjustOtherPaneCursors adjusts cursors in other panes viewing the same buffer
+// after lines are added or removed
+func (e *Editor) adjustOtherPaneCursors(buf *Buffer, editRow, linesDelta int) {
+	if linesDelta == 0 {
+		return
+	}
+	activeP := e.activePane()
+	for _, p := range e.panes {
+		if p.Buffer == buf && p != activeP {
+			p.AdjustCursorForEdit(editRow, linesDelta)
+		}
+	}
+}
+
 // New creates a new editor instance
 func New(fileInfos []FileInfo, splitMode SplitMode) (*Editor, error) {
 	// Load configuration
 	config := LoadConfig()
 	fileTypeRegistry := NewFileTypeRegistry(config)
 
-	var buffers []*Buffer
+	// Initialize buffer registry and panes
+	bufferRegistry := make(map[string]*Buffer)
+	var panes []*Pane
+
 	for _, fi := range fileInfos {
-		buf, err := NewBufferWithRegistry(fi.Filename, fileTypeRegistry)
+		// Get absolute path for deduplication
+		absPath, err := filepath.Abs(fi.Filename)
 		if err != nil {
 			return nil, err
 		}
-		// Position cursor at specified line if provided
-		if fi.Line > 0 {
-			buf.GotoLine(fi.Line)
+
+		// Check if buffer already exists (same file opened multiple times)
+		buf, exists := bufferRegistry[absPath]
+		if !exists {
+			// Create new buffer
+			buf, err = NewBufferWithRegistry(fi.Filename, fileTypeRegistry)
+			if err != nil {
+				return nil, err
+			}
+			bufferRegistry[absPath] = buf
 		}
-		buffers = append(buffers, buf)
+
+		// Create pane for this file (even if buffer already exists)
+		var pane *Pane
+		if fi.Line > 0 {
+			pane = NewPaneAtLine(buf, fi.Line)
+		} else {
+			pane = NewPane(buf)
+		}
+		panes = append(panes, pane)
 	}
 
 	scr, err := NewScreen()
@@ -97,14 +177,15 @@ func New(fileInfos []FileInfo, splitMode SplitMode) (*Editor, error) {
 		return nil, err
 	}
 
-	// Watch all buffer files
-	for _, buf := range buffers {
+	// Watch all unique buffers (not duplicate panes)
+	for _, buf := range bufferRegistry {
 		fw.Watch(buf.Filename)
 	}
 
 	return &Editor{
-		buffers:          buffers,
-		activePane:       0,
+		bufferRegistry:   bufferRegistry,
+		panes:            panes,
+		activePaneIdx:    0,
 		screen:           scr,
 		splitMode:        splitMode,
 		mode:             ModeNormal,
@@ -124,7 +205,7 @@ func (e *Editor) Run() error {
 	defer e.fileWatcher.Close()
 
 	for {
-		e.screen.Render(e.buffers, e.activePane, e.mode, e.inputState, e.splitMode)
+		e.screen.Render(e.panes, e.activePaneIdx, e.mode, e.inputState, e.splitMode)
 
 		ev := e.screen.PollEvent()
 
@@ -162,7 +243,8 @@ func (e *Editor) stopAutoSave() {
 
 // saveAllModified saves all buffers that have been modified
 func (e *Editor) saveAllModified() {
-	for _, buf := range e.buffers {
+	// Iterate over unique buffers from registry (not panes, to avoid saving same buffer twice)
+	for _, buf := range e.bufferRegistry {
 		if buf.Modified {
 			buf.Save()
 			// Update watcher's mod time tracking to avoid false external change detection
@@ -173,13 +255,15 @@ func (e *Editor) saveAllModified() {
 
 // handleExternalFileChange reloads a file that was modified externally
 func (e *Editor) handleExternalFileChange(filename string) {
-	// Find the buffer for this file (compare using absolute paths)
-	var buf *Buffer
-	for _, b := range e.buffers {
-		bufAbs, _ := filepath.Abs(b.Filename)
-		if bufAbs == filename || b.Filename == filename {
-			buf = b
-			break
+	// Find the buffer for this file using the registry (already keyed by absolute path)
+	buf, exists := e.bufferRegistry[filename]
+	if !exists {
+		// Try to find by checking absolute paths
+		for absPath, b := range e.bufferRegistry {
+			if absPath == filename || b.Filename == filename {
+				buf = b
+				break
+			}
 		}
 	}
 	if buf == nil {
@@ -193,9 +277,10 @@ func (e *Editor) handleExternalFileChange(filename string) {
 		e.mode = ModeNormal
 	}
 
-	// Snapshot current content for undo
+	// Snapshot current content for undo using active pane's cursor
 	oldLines := copyLines(buf.Lines)
-	cursorRow, cursorCol := buf.CursorRow, buf.CursorCol
+	pane := e.activePane()
+	cursorRow, cursorCol := pane.CursorRow, pane.CursorCol
 	hadUnsavedChanges := buf.Modified
 
 	// Reload the file
@@ -221,16 +306,10 @@ func (e *Editor) handleExternalFileChange(filename string) {
 		buf.Modified = true
 	}
 
-	// Clamp cursor to valid position
-	if buf.CursorRow >= len(buf.Lines) {
-		buf.CursorRow = len(buf.Lines) - 1
+	// Clamp cursors in all panes viewing this buffer
+	for _, p := range e.getPanesForBuffer(buf) {
+		p.clampCursor()
 	}
-	buf.clampCursorCol()
-}
-
-// activeBuffer returns the currently active buffer
-func (e *Editor) activeBuffer() *Buffer {
-	return e.buffers[e.activePane]
 }
 
 // suspend moves the editor process to background (ctrl+z)
@@ -248,7 +327,7 @@ func (e *Editor) suspend() {
 // checkDoubleShift detects double-shift press to switch panes
 // Also handles Shift+Tab as a reliable alternative
 func (e *Editor) checkDoubleShift(ev *tcell.EventKey) bool {
-	if len(e.buffers) <= 1 {
+	if len(e.panes) <= 1 {
 		return false
 	}
 
@@ -260,11 +339,11 @@ func (e *Editor) checkDoubleShift(ev *tcell.EventKey) bool {
 		if e.mode == ModeInsert {
 			e.history.CommitSession(e.activeBuffer().Lines)
 		}
-		e.activePane = (e.activePane + 1) % len(e.buffers)
+		e.activePaneIdx = (e.activePaneIdx + 1) % len(e.panes)
 		// If in insert mode, start new session for the new buffer
 		if e.mode == ModeInsert {
-			buf := e.activeBuffer()
-			e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+			pane := e.activePane()
+			e.history.StartSession(pane.Buffer, pane.CursorRow, pane.CursorCol, pane.Buffer.Lines)
 		}
 		return true
 	}
@@ -282,11 +361,11 @@ func (e *Editor) checkDoubleShift(ev *tcell.EventKey) bool {
 			if e.mode == ModeInsert {
 				e.history.CommitSession(e.activeBuffer().Lines)
 			}
-			e.activePane = (e.activePane + 1) % len(e.buffers)
+			e.activePaneIdx = (e.activePaneIdx + 1) % len(e.panes)
 			// If in insert mode, start new session for the new buffer
 			if e.mode == ModeInsert {
-				buf := e.activeBuffer()
-				e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+				pane := e.activePane()
+				e.history.StartSession(pane.Buffer, pane.CursorRow, pane.CursorCol, pane.Buffer.Lines)
 			}
 			e.lastShiftTime = time.Time{} // Reset to prevent triple-switch
 			return true
@@ -401,10 +480,19 @@ func (e *Editor) tryKeyMapping(ev *tcell.EventKey) bool {
 
 // flushPendingMapKeys processes pending map keys as normal input
 func (e *Editor) flushPendingMapKeys() {
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
+
+	// Sync pane cursor to buffer before inserting
+	pane.SyncToBuffer()
+
 	for _, ch := range e.pendingMapKeys {
 		buf.InsertChar(ch)
 	}
+
+	// Sync buffer cursor back to pane after inserting
+	pane.SyncFromBuffer()
+
 	if len(e.pendingMapKeys) > 0 {
 		e.scheduleAutoSave()
 		e.triggerAutocomplete()
@@ -416,7 +504,11 @@ func (e *Editor) flushPendingMapKeys() {
 // executeMapping executes a key mapping expansion
 func (e *Editor) executeMapping(expansion string) {
 	keys := ParseSpecialKeys(expansion)
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
+
+	// Sync pane cursor to buffer before any operations
+	pane.SyncToBuffer()
 
 	for _, key := range keys {
 		switch key.Key {
@@ -424,35 +516,40 @@ func (e *Editor) executeMapping(expansion string) {
 			e.mode = ModeNormal
 			e.history.CommitSession(buf.Lines)
 			e.inputState.Reset()
-			if buf.CursorCol > 0 {
-				buf.CursorCol--
+			if pane.CursorCol > 0 {
+				pane.CursorCol--
 			}
 		case tcell.KeyEnter:
 			if e.mode == ModeInsert {
 				buf.InsertNewlineWithIndent()
+				pane.SyncFromBuffer()
 				e.scheduleAutoSave()
 			}
 		case tcell.KeyTab:
 			if e.mode == ModeInsert {
 				buf.InsertTab()
+				pane.SyncFromBuffer()
 				e.scheduleAutoSave()
 			}
 		case tcell.KeyBackspace2:
 			if e.mode == ModeInsert {
 				buf.DeleteChar()
+				pane.SyncFromBuffer()
 				e.scheduleAutoSave()
 			}
 		case tcell.KeyLeft:
-			buf.MoveLeft()
+			pane.MoveLeft()
 		case tcell.KeyRight:
-			buf.MoveRight()
+			pane.MoveRight()
 		case tcell.KeyUp:
-			buf.MoveUp()
+			pane.MoveUp()
 		case tcell.KeyDown:
-			buf.MoveDown()
+			pane.MoveDown()
 		case tcell.KeyRune:
 			if e.mode == ModeInsert {
+				pane.SyncToBuffer()
 				buf.InsertChar(key.Rune)
+				pane.SyncFromBuffer()
 				e.scheduleAutoSave()
 			} else if e.mode == ModeNormal {
 				e.executeMappingNormalRune(key.Rune)
@@ -463,68 +560,79 @@ func (e *Editor) executeMapping(expansion string) {
 
 // executeMappingNormalRune handles a rune key in normal mode during mapping execution
 func (e *Editor) executeMappingNormalRune(r rune) {
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
 
 	switch r {
 	// Navigation
 	case 'h':
-		buf.MoveLeft()
+		pane.MoveLeft()
 	case 'j':
-		buf.MoveDown()
+		pane.MoveDown()
 	case 'k':
-		buf.MoveUp()
+		pane.MoveUp()
 	case 'l':
-		buf.MoveRight()
+		pane.MoveRight()
 	case '0':
-		buf.MoveToLineStart()
+		pane.MoveToLineStart()
 	case '$':
-		buf.MoveToLineEnd()
+		pane.MoveToLineEnd()
 	case 'w':
-		buf.MoveToNextWord()
+		pane.MoveToNextWord()
 	case 'b':
-		buf.MoveToPrevWord()
+		pane.MoveToPrevWord()
 	case 'G':
-		buf.CursorRow = len(buf.Lines) - 1
-		buf.CursorCol = 0
+		pane.CursorRow = len(buf.Lines) - 1
+		pane.CursorCol = 0
 
 	// Mode switching
 	case 'i':
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 	case 'a':
 		// Append after cursor
-		if buf.CursorCol < len(buf.Lines[buf.CursorRow]) {
-			buf.CursorCol++
+		if pane.CursorCol < len(buf.Lines[pane.CursorRow]) {
+			pane.CursorCol++
 		}
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 	case 'A':
 		// Append at end of line
-		buf.MoveToLineEnd()
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.MoveToLineEnd()
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 	case 'I':
 		// Insert at beginning of line
-		buf.MoveToLineStart()
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.MoveToLineStart()
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 	case 'o':
 		// Open line below
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		buf.OpenLineBelow()
+		pane.SyncFromBuffer()
 		e.mode = ModeInsert
 		e.scheduleAutoSave()
 	case 'O':
 		// Open line above
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		buf.OpenLineAbove()
+		pane.SyncFromBuffer()
 		e.mode = ModeInsert
 		e.scheduleAutoSave()
 
 	// Deletion
 	case 'x':
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		buf.DeleteCharAtCursor()
+		pane.SyncFromBuffer()
 		e.history.CommitSession(buf.Lines)
 		e.scheduleAutoSave()
 	}
@@ -532,14 +640,19 @@ func (e *Editor) executeMappingNormalRune(r rune) {
 
 // handleInsertMode handles key events in insert mode (text editing)
 func (e *Editor) handleInsertMode(ev *tcell.EventKey) bool {
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
 	ac := e.inputState.Autocomplete
+
+	// Sync pane cursor to buffer before operations
+	pane.SyncToBuffer()
 
 	// Handle autocomplete keys when dropdown is visible
 	if ac != nil && ac.Active {
 		switch ev.Key() {
 		case tcell.KeyTab, tcell.KeyEnter:
 			e.acceptAutocomplete()
+			pane.SyncFromBuffer()
 			return false
 		case tcell.KeyEscape:
 			e.inputState.Autocomplete = nil
@@ -560,62 +673,67 @@ func (e *Editor) handleInsertMode(ev *tcell.EventKey) bool {
 		e.history.CommitSession(buf.Lines)
 		e.inputState.Reset()
 		// Move cursor back one position like vim
-		if buf.CursorCol > 0 {
-			buf.CursorCol--
+		if pane.CursorCol > 0 {
+			pane.CursorCol--
 		}
 
 	case tcell.KeyUp:
 		// Only move cursor if autocomplete is not active (it handles Up itself)
 		if ac == nil || !ac.Active {
-			buf.MoveUp()
+			pane.MoveUp()
 		}
 
 	case tcell.KeyDown:
 		// Only move cursor if autocomplete is not active (it handles Down itself)
 		if ac == nil || !ac.Active {
-			buf.MoveDown()
+			pane.MoveDown()
 		}
 
 	case tcell.KeyLeft:
 		e.inputState.Autocomplete = nil
-		buf.MoveLeft()
+		pane.MoveLeft()
 
 	case tcell.KeyRight:
 		e.inputState.Autocomplete = nil
-		buf.MoveRight()
+		pane.MoveRight()
 
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		buf.DeleteChar()
+		pane.SyncFromBuffer()
 		e.scheduleAutoSave()
 		e.triggerAutocomplete()
 
 	case tcell.KeyDelete:
 		e.inputState.Autocomplete = nil
 		buf.DeleteCharForward()
+		pane.SyncFromBuffer()
 		e.scheduleAutoSave()
 
 	case tcell.KeyEnter:
 		e.inputState.Autocomplete = nil
 		buf.InsertNewlineWithIndent()
+		pane.SyncFromBuffer()
 		e.scheduleAutoSave()
 
 	case tcell.KeyCtrlD:
 		e.inputState.Autocomplete = nil
 		_, height := e.screen.Size()
-		buf.PageDown(height)
+		pane.PageDown(height)
 
 	case tcell.KeyCtrlU:
 		e.inputState.Autocomplete = nil
 		_, height := e.screen.Size()
-		buf.PageUp(height)
+		pane.PageUp(height)
 
 	case tcell.KeyRune:
 		buf.InsertChar(ev.Rune())
+		pane.SyncFromBuffer()
 		e.scheduleAutoSave()
 		e.triggerAutocomplete()
 
 	case tcell.KeyTab:
 		buf.InsertTab()
+		pane.SyncFromBuffer()
 		e.scheduleAutoSave()
 		e.triggerAutocomplete()
 	}
@@ -625,7 +743,7 @@ func (e *Editor) handleInsertMode(ev *tcell.EventKey) bool {
 
 // handleNormalMode handles key events in normal mode (navigation/commands)
 func (e *Editor) handleNormalMode(ev *tcell.EventKey) bool {
-	buf := e.activeBuffer()
+	pane := e.activePane()
 	_, height := e.screen.Size()
 
 	// Handle pending goto line mode
@@ -649,27 +767,27 @@ func (e *Editor) handleNormalMode(ev *tcell.EventKey) bool {
 		return false
 
 	case tcell.KeyUp:
-		buf.MoveUpN(e.inputState.GetCount())
+		pane.MoveUpN(e.inputState.GetCount())
 		e.inputState.Reset()
 
 	case tcell.KeyDown:
-		buf.MoveDownN(e.inputState.GetCount())
+		pane.MoveDownN(e.inputState.GetCount())
 		e.inputState.Reset()
 
 	case tcell.KeyLeft:
-		buf.MoveLeftN(e.inputState.GetCount())
+		pane.MoveLeftN(e.inputState.GetCount())
 		e.inputState.Reset()
 
 	case tcell.KeyRight:
-		buf.MoveRightN(e.inputState.GetCount())
+		pane.MoveRightN(e.inputState.GetCount())
 		e.inputState.Reset()
 
 	case tcell.KeyCtrlD:
-		buf.PageDown(height)
+		pane.PageDown(height)
 		e.inputState.Reset()
 
 	case tcell.KeyCtrlU:
-		buf.PageUp(height)
+		pane.PageUp(height)
 		e.inputState.Reset()
 
 	case tcell.KeyCtrlR:
@@ -685,7 +803,8 @@ func (e *Editor) handleNormalMode(ev *tcell.EventKey) bool {
 
 // handleNormalModeRune handles rune keys in normal mode
 func (e *Editor) handleNormalModeRune(r rune) bool {
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
 	count := e.inputState.GetCount()
 
 	// Handle pending operator
@@ -702,69 +821,77 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		if e.inputState.HasCount {
 			e.inputState.AddDigit(0)
 		} else {
-			buf.MoveToLineStart()
+			pane.MoveToLineStart()
 		}
 		return false
 
 	// Navigation
 	case 'h':
-		buf.MoveLeftN(count)
+		pane.MoveLeftN(count)
 		e.inputState.Reset()
 	case 'j':
-		buf.MoveDownN(count)
+		pane.MoveDownN(count)
 		e.inputState.Reset()
 	case 'k':
-		buf.MoveUpN(count)
+		pane.MoveUpN(count)
 		e.inputState.Reset()
 	case 'l':
-		buf.MoveRightN(count)
+		pane.MoveRightN(count)
 		e.inputState.Reset()
 	case '$':
-		buf.MoveToLineEnd()
+		pane.MoveToLineEnd()
 		e.inputState.Reset()
 
 	// Mode switching
 	case 'i':
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 		e.inputState.Reset()
 	case 'a':
 		// Append after cursor
-		if buf.CursorCol < len(buf.Lines[buf.CursorRow]) {
-			buf.CursorCol++
+		if pane.CursorCol < len(buf.Lines[pane.CursorRow]) {
+			pane.CursorCol++
 		}
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 		e.inputState.Reset()
 	case 'A':
 		// Append at end of line
-		buf.MoveToLineEnd()
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.MoveToLineEnd()
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 		e.inputState.Reset()
 	case 'I':
 		// Insert at beginning of line
-		buf.MoveToLineStart()
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.MoveToLineStart()
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
 		e.inputState.Reset()
 	case 'o':
 		// Open line below - snapshot before modification
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		buf.OpenLineBelow()
+		pane.SyncFromBuffer()
 		e.mode = ModeInsert
 		e.inputState.Reset()
 		e.scheduleAutoSave()
 	case 'O':
 		// Open line above - snapshot before modification
-		e.history.StartSession(buf, buf.CursorRow, buf.CursorCol, buf.Lines)
+		pane.SyncToBuffer()
+		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		buf.OpenLineAbove()
+		pane.SyncFromBuffer()
 		e.mode = ModeInsert
 		e.inputState.Reset()
 		e.scheduleAutoSave()
 	case 'v':
 		e.mode = ModeVisual
-		buf.StartSelection()
+		pane.StartSelection()
 		e.inputState.Reset()
 
 	// Find character
@@ -777,9 +904,9 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		if e.inputState.HasLastFind {
 			for i := 0; i < count; i++ {
 				if e.inputState.LastFindForward {
-					buf.FindCharForward(e.inputState.LastFindChar)
+					pane.FindCharForward(e.inputState.LastFindChar)
 				} else {
-					buf.FindCharBackward(e.inputState.LastFindChar)
+					pane.FindCharBackward(e.inputState.LastFindChar)
 				}
 			}
 		}
@@ -789,9 +916,9 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		if e.inputState.HasLastFind {
 			for i := 0; i < count; i++ {
 				if e.inputState.LastFindForward {
-					buf.FindCharBackward(e.inputState.LastFindChar)
+					pane.FindCharBackward(e.inputState.LastFindChar)
 				} else {
-					buf.FindCharForward(e.inputState.LastFindChar)
+					pane.FindCharForward(e.inputState.LastFindChar)
 				}
 			}
 		}
@@ -805,26 +932,26 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 	// Page navigation (like G and gg)
 	case 'G':
 		if e.inputState.HasCount {
-			buf.GotoLine(count)
+			pane.GotoLine(count)
 		} else {
-			buf.GotoLine(len(buf.Lines)) // Go to last line
+			pane.GotoLine(len(buf.Lines)) // Go to last line
 		}
 		e.inputState.Reset()
 	case 'g':
 		// For gg, we'd need another pending state, but for simplicity
 		// just go to first line on single 'g'
-		buf.GotoLine(1)
+		pane.GotoLine(1)
 		e.inputState.Reset()
 
 	// Word navigation
 	case 'w':
 		for i := 0; i < count; i++ {
-			buf.MoveToNextWord()
+			pane.MoveToNextWord()
 		}
 		e.inputState.Reset()
 	case 'b':
 		for i := 0; i < count; i++ {
-			buf.MoveToPrevWord()
+			pane.MoveToPrevWord()
 		}
 		e.inputState.Reset()
 
@@ -838,11 +965,13 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 
 	// Delete character under cursor
 	case 'x':
-		startCol := buf.CursorCol
+		pane.SyncToBuffer()
+		startCol := pane.CursorCol
 		var deletedChars []rune
 		for i := 0; i < count; i++ {
-			if buf.CursorCol < len(buf.Lines[buf.CursorRow]) {
+			if pane.CursorCol < len(buf.Lines[pane.CursorRow]) {
 				deleted := buf.DeleteCharAtCursor()
+				pane.SyncFromBuffer()
 				if deleted != 0 {
 					deletedChars = append(deletedChars, deleted)
 				}
@@ -851,7 +980,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		if len(deletedChars) > 0 {
 			e.clipboard = [][]rune{deletedChars}
 			e.clipboardLine = false
-			e.history.RecordDelete(buf, buf.CursorRow, startCol, [][]rune{deletedChars})
+			e.history.RecordDelete(buf, pane.CursorRow, startCol, [][]rune{deletedChars})
 		}
 		e.scheduleAutoSave()
 		e.inputState.Reset()
@@ -859,9 +988,11 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 	// Paste after cursor
 	case 'p':
 		if len(e.clipboard) > 0 {
+			pane.SyncToBuffer()
 			oldLines := copyLines(buf.Lines)
-			cursorRow, cursorCol := buf.CursorRow, buf.CursorCol
+			cursorRow, cursorCol := pane.CursorRow, pane.CursorCol
 			e.pasteAfter()
+			pane.SyncFromBuffer()
 			e.history.Push(&Change{
 				Type:    ChangeReplace,
 				Buffer:  buf,
@@ -876,9 +1007,11 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 	// Paste before cursor
 	case 'P':
 		if len(e.clipboard) > 0 {
+			pane.SyncToBuffer()
 			oldLines := copyLines(buf.Lines)
-			cursorRow, cursorCol := buf.CursorRow, buf.CursorCol
+			cursorRow, cursorCol := pane.CursorRow, pane.CursorCol
 			e.pasteBefore()
+			pane.SyncFromBuffer()
 			e.history.Push(&Change{
 				Type:    ChangeReplace,
 				Buffer:  buf,
@@ -1005,11 +1138,13 @@ func (e *Editor) undo() {
 		buf = e.activeBuffer()
 	}
 
-	// Switch to the correct pane if needed
-	for i, b := range e.buffers {
-		if b == buf {
-			e.activePane = i
-			break
+	// Switch to a pane viewing this buffer if current pane doesn't
+	if e.activePane().Buffer != buf {
+		for i, p := range e.panes {
+			if p.Buffer == buf {
+				e.activePaneIdx = i
+				break
+			}
 		}
 	}
 
@@ -1122,6 +1257,10 @@ func (e *Editor) undo() {
 	}
 
 	buf.clampCursorCol()
+
+	// Sync cursor position to active pane
+	e.activePane().SyncFromBuffer()
+
 	e.scheduleAutoSave()
 }
 
@@ -1139,11 +1278,13 @@ func (e *Editor) redo() {
 		buf = e.activeBuffer()
 	}
 
-	// Switch to the correct pane if needed
-	for i, b := range e.buffers {
-		if b == buf {
-			e.activePane = i
-			break
+	// Switch to a pane viewing this buffer if current pane doesn't
+	if e.activePane().Buffer != buf {
+		for i, p := range e.panes {
+			if p.Buffer == buf {
+				e.activePaneIdx = i
+				break
+			}
 		}
 	}
 
@@ -1248,6 +1389,10 @@ func (e *Editor) redo() {
 	}
 
 	buf.clampCursorCol()
+
+	// Sync cursor position to active pane
+	e.activePane().SyncFromBuffer()
+
 	e.scheduleAutoSave()
 }
 
@@ -1327,44 +1472,52 @@ func (e *Editor) pasteBefore() {
 
 // handlePendingOperator handles the second key after an operator (d, y)
 func (e *Editor) handlePendingOperator(r rune) bool {
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
 	op := e.inputState.PendingOperator
 	count := e.inputState.GetCount()
+
+	// Sync pane cursor to buffer before operations
+	pane.SyncToBuffer()
 
 	switch {
 	// dd - delete line(s)
 	case op == 'd' && r == 'd':
-		startRow := buf.CursorRow
+		startRow := pane.CursorRow
 		var deleted [][]rune
-		for i := 0; i < count && buf.CursorRow < len(buf.Lines); i++ {
-			line := buf.DeleteLine(buf.CursorRow)
+		for i := 0; i < count && pane.CursorRow < len(buf.Lines); i++ {
+			line := buf.DeleteLine(pane.CursorRow)
 			deleted = append(deleted, line)
 		}
 		e.clipboard = deleted
 		e.clipboardLine = true
 		// Record for undo - treat as deletion of full lines
 		e.history.RecordDeleteLines(buf, startRow, deleted)
+		// Clamp cursor after deletion
+		pane.clampCursor()
 		e.scheduleAutoSave()
 
 	// yy - yank line(s)
 	case op == 'y' && r == 'y':
 		var yanked [][]rune
-		for i := 0; i < count && buf.CursorRow+i < len(buf.Lines); i++ {
-			yanked = append(yanked, buf.CopyLine(buf.CursorRow+i))
+		for i := 0; i < count && pane.CursorRow+i < len(buf.Lines); i++ {
+			yanked = append(yanked, buf.CopyLine(pane.CursorRow+i))
 		}
 		e.clipboard = yanked
 		e.clipboardLine = true
 
 	// dw - delete word
 	case op == 'd' && r == 'w':
-		startRow, startCol := buf.CursorRow, buf.CursorCol
+		startRow, startCol := pane.CursorRow, pane.CursorCol
 		for i := 0; i < count; i++ {
-			buf.MoveToNextWord()
+			pane.MoveToNextWord()
 		}
-		endRow, endCol := buf.CursorRow, buf.CursorCol
+		endRow, endCol := pane.CursorRow, pane.CursorCol
 		// Restore cursor and delete range
-		buf.CursorRow, buf.CursorCol = startRow, startCol
+		pane.CursorRow, pane.CursorCol = startRow, startCol
+		pane.SyncToBuffer()
 		deleted := buf.DeleteRange(startRow, startCol, endRow, endCol)
+		pane.SyncFromBuffer()
 		e.clipboard = deleted
 		e.clipboardLine = false
 		e.history.RecordDelete(buf, startRow, startCol, deleted)
@@ -1372,12 +1525,14 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 
 	// db - delete word backward
 	case op == 'd' && r == 'b':
-		endRow, endCol := buf.CursorRow, buf.CursorCol
+		endRow, endCol := pane.CursorRow, pane.CursorCol
 		for i := 0; i < count; i++ {
-			buf.MoveToPrevWord()
+			pane.MoveToPrevWord()
 		}
-		startRow, startCol := buf.CursorRow, buf.CursorCol
+		startRow, startCol := pane.CursorRow, pane.CursorCol
+		pane.SyncToBuffer()
 		deleted := buf.DeleteRange(startRow, startCol, endRow, endCol)
+		pane.SyncFromBuffer()
 		e.clipboard = deleted
 		e.clipboardLine = false
 		e.history.RecordDelete(buf, startRow, startCol, deleted)
@@ -1385,27 +1540,27 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 
 	// d$ - delete to end of line
 	case op == 'd' && r == '$':
-		line := buf.Lines[buf.CursorRow]
-		if buf.CursorCol < len(line) {
-			deleted := make([]rune, len(line)-buf.CursorCol)
-			copy(deleted, line[buf.CursorCol:])
-			buf.Lines[buf.CursorRow] = line[:buf.CursorCol]
+		line := buf.Lines[pane.CursorRow]
+		if pane.CursorCol < len(line) {
+			deleted := make([]rune, len(line)-pane.CursorCol)
+			copy(deleted, line[pane.CursorCol:])
+			buf.Lines[pane.CursorRow] = line[:pane.CursorCol]
 			e.clipboard = [][]rune{deleted}
 			e.clipboardLine = false
-			e.history.RecordDelete(buf, buf.CursorRow, buf.CursorCol, [][]rune{deleted})
+			e.history.RecordDelete(buf, pane.CursorRow, pane.CursorCol, [][]rune{deleted})
 			buf.Modified = true
 			e.scheduleAutoSave()
 		}
 
 	// d0 - delete to beginning of line
 	case op == 'd' && r == '0':
-		line := buf.Lines[buf.CursorRow]
-		if buf.CursorCol > 0 {
-			deleted := make([]rune, buf.CursorCol)
-			copy(deleted, line[:buf.CursorCol])
-			buf.Lines[buf.CursorRow] = line[buf.CursorCol:]
-			e.history.RecordDelete(buf, buf.CursorRow, 0, [][]rune{deleted})
-			buf.CursorCol = 0
+		line := buf.Lines[pane.CursorRow]
+		if pane.CursorCol > 0 {
+			deleted := make([]rune, pane.CursorCol)
+			copy(deleted, line[:pane.CursorCol])
+			buf.Lines[pane.CursorRow] = line[pane.CursorCol:]
+			e.history.RecordDelete(buf, pane.CursorRow, 0, [][]rune{deleted})
+			pane.CursorCol = 0
 			e.clipboard = [][]rune{deleted}
 			e.clipboardLine = false
 			buf.Modified = true
@@ -1422,7 +1577,7 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 
 // handleFindCharInput handles character input after f or F
 func (e *Editor) handleFindCharInput(ev *tcell.EventKey) bool {
-	buf := e.activeBuffer()
+	pane := e.activePane()
 	count := e.inputState.GetCount()
 
 	if ev.Key() == tcell.KeyEscape {
@@ -1436,9 +1591,9 @@ func (e *Editor) handleFindCharInput(ev *tcell.EventKey) bool {
 
 		for i := 0; i < count; i++ {
 			if forward {
-				buf.FindCharForward(ch)
+				pane.FindCharForward(ch)
 			} else {
-				buf.FindCharBackward(ch)
+				pane.FindCharBackward(ch)
 			}
 		}
 
@@ -1451,7 +1606,7 @@ func (e *Editor) handleFindCharInput(ev *tcell.EventKey) bool {
 
 // handleGotoLineInput handles input in goto line mode (after :)
 func (e *Editor) handleGotoLineInput(ev *tcell.EventKey) bool {
-	buf := e.activeBuffer()
+	pane := e.activePane()
 
 	switch ev.Key() {
 	case tcell.KeyEscape:
@@ -1466,7 +1621,7 @@ func (e *Editor) handleGotoLineInput(ev *tcell.EventKey) bool {
 				}
 			}
 			if lineNum > 0 {
-				buf.GotoLine(lineNum)
+				pane.GotoLine(lineNum)
 			}
 		}
 		e.inputState.Reset()
@@ -1486,7 +1641,8 @@ func (e *Editor) handleGotoLineInput(ev *tcell.EventKey) bool {
 
 // handleVisualMode handles key events in visual mode (selection)
 func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
 	_, height := e.screen.Size()
 
 	// Handle pending find character
@@ -1499,9 +1655,9 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 			ch := ev.Rune()
 			forward := e.inputState.PendingFindForward
 			if forward {
-				buf.FindCharForward(ch)
+				pane.FindCharForward(ch)
 			} else {
-				buf.FindCharBackward(ch)
+				pane.FindCharBackward(ch)
 			}
 			e.inputState.SaveLastFind(ch, forward)
 			e.inputState.Reset()
@@ -1512,54 +1668,54 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyEscape:
 		e.mode = ModeNormal
-		buf.ClearSelection()
+		pane.ClearSelection()
 		e.inputState.Reset()
 
 	case tcell.KeyUp:
-		buf.MoveUp()
+		pane.MoveUp()
 
 	case tcell.KeyDown:
-		buf.MoveDown()
+		pane.MoveDown()
 
 	case tcell.KeyLeft:
-		buf.MoveLeft()
+		pane.MoveLeft()
 
 	case tcell.KeyRight:
-		buf.MoveRight()
+		pane.MoveRight()
 
 	case tcell.KeyCtrlD:
-		buf.PageDown(height)
+		pane.PageDown(height)
 
 	case tcell.KeyCtrlU:
-		buf.PageUp(height)
+		pane.PageUp(height)
 
 	case tcell.KeyRune:
 		switch ev.Rune() {
 		case 'h':
-			buf.MoveLeft()
+			pane.MoveLeft()
 		case 'j':
-			buf.MoveDown()
+			pane.MoveDown()
 		case 'k':
-			buf.MoveUp()
+			pane.MoveUp()
 		case 'l':
-			buf.MoveRight()
+			pane.MoveRight()
 		case '0':
-			buf.MoveToLineStart()
+			pane.MoveToLineStart()
 		case '$':
-			buf.MoveToLineEnd()
+			pane.MoveToLineEnd()
 		case 'v':
 			// Exit visual mode
 			e.mode = ModeNormal
-			buf.ClearSelection()
+			pane.ClearSelection()
 			e.inputState.Reset()
 		case 'G':
-			buf.GotoLine(len(buf.Lines))
+			pane.GotoLine(len(buf.Lines))
 		case 'g':
-			buf.GotoLine(1)
+			pane.GotoLine(1)
 		case 'w':
-			buf.MoveToNextWord()
+			pane.MoveToNextWord()
 		case 'b':
-			buf.MoveToPrevWord()
+			pane.MoveToPrevWord()
 
 		// Find character in line
 		case 'f':
@@ -1570,56 +1726,58 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 			// Repeat last find
 			if e.inputState.HasLastFind {
 				if e.inputState.LastFindForward {
-					buf.FindCharForward(e.inputState.LastFindChar)
+					pane.FindCharForward(e.inputState.LastFindChar)
 				} else {
-					buf.FindCharBackward(e.inputState.LastFindChar)
+					pane.FindCharBackward(e.inputState.LastFindChar)
 				}
 			}
 		case ',':
 			// Repeat last find in reverse
 			if e.inputState.HasLastFind {
 				if e.inputState.LastFindForward {
-					buf.FindCharBackward(e.inputState.LastFindChar)
+					pane.FindCharBackward(e.inputState.LastFindChar)
 				} else {
-					buf.FindCharForward(e.inputState.LastFindChar)
+					pane.FindCharForward(e.inputState.LastFindChar)
 				}
 			}
 
 		// Copy selection
 		case 'y':
-			startRow, startCol, endRow, endCol := buf.GetSelection()
+			startRow, startCol, endRow, endCol := pane.GetSelection()
 			e.clipboard = buf.GetRange(startRow, startCol, endRow, endCol)
 			e.clipboardLine = false
 			e.mode = ModeNormal
-			buf.ClearSelection()
+			pane.ClearSelection()
 			e.inputState.Reset()
 
 		// Delete selection (d and x both delete selection in visual mode)
 		case 'd', 'x':
-			startRow, startCol, endRow, endCol := buf.GetSelection()
+			startRow, startCol, endRow, endCol := pane.GetSelection()
+			pane.SyncToBuffer()
 			e.clipboard = buf.DeleteRange(startRow, startCol, endRow, endCol+1)
+			pane.SyncFromBuffer()
 			e.clipboardLine = false
 			e.history.RecordDelete(buf, startRow, startCol, e.clipboard)
 			e.mode = ModeNormal
-			buf.ClearSelection()
+			pane.ClearSelection()
 			e.inputState.Reset()
 			e.scheduleAutoSave()
 
 		// Indent selection
 		case '>':
-			startRow, _, endRow, _ := buf.GetSelection()
+			startRow, _, endRow, _ := pane.GetSelection()
 			buf.IndentRange(startRow, endRow)
 			e.mode = ModeNormal
-			buf.ClearSelection()
+			pane.ClearSelection()
 			e.inputState.Reset()
 			e.scheduleAutoSave()
 
 		// Unindent selection
 		case '<':
-			startRow, _, endRow, _ := buf.GetSelection()
+			startRow, _, endRow, _ := pane.GetSelection()
 			buf.UnindentRange(startRow, endRow)
 			e.mode = ModeNormal
-			buf.ClearSelection()
+			pane.ClearSelection()
 			e.inputState.Reset()
 			e.scheduleAutoSave()
 
@@ -1628,10 +1786,12 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 			if len(e.clipboard) > 0 {
 				// Take snapshot for undo
 				oldLines := copyLines(buf.Lines)
-				startRow, startCol, endRow, endCol := buf.GetSelection()
+				startRow, startCol, endRow, endCol := pane.GetSelection()
 
+				pane.SyncToBuffer()
 				buf.DeleteRange(startRow, startCol, endRow, endCol+1)
-				buf.ClearSelection()
+				pane.SyncFromBuffer()
+				pane.ClearSelection()
 				e.mode = ModeNormal
 				// Now paste at cursor
 				if ev.Rune() == 'p' {
@@ -1639,6 +1799,7 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 				} else {
 					e.pasteBefore()
 				}
+				pane.SyncFromBuffer()
 
 				// Record the combined delete+paste operation for undo
 				e.history.Push(&Change{
@@ -1668,8 +1829,9 @@ func (e *Editor) enterSearchMode() {
 		return
 	}
 
-	buf := e.activeBuffer()
-	search := NewSearchState(buf.CursorRow, buf.CursorCol)
+	pane := e.activePane()
+	buf := pane.Buffer
+	search := NewSearchState(pane.CursorRow, pane.CursorCol)
 
 	// Restore previous query if available (FR-024)
 	if e.lastSearchQuery != "" {
@@ -1682,11 +1844,11 @@ func (e *Editor) enterSearchMode() {
 
 		// Find first match after current cursor (T048)
 		if len(search.Matches) > 0 {
-			search.CurrentIndex = FindFirstMatchAfterCursor(search.Matches, buf.CursorRow, buf.CursorCol)
+			search.CurrentIndex = FindFirstMatchAfterCursor(search.Matches, pane.CursorRow, pane.CursorCol)
 			if search.CurrentIndex >= 0 {
 				match := search.Matches[search.CurrentIndex]
-				buf.CursorRow = match.Row
-				buf.CursorCol = match.Col
+				pane.CursorRow = match.Row
+				pane.CursorCol = match.Col
 			}
 		}
 	}
@@ -1748,7 +1910,8 @@ func (e *Editor) updateSearchMatches() {
 		return
 	}
 
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
 	if search.Query == "" {
 		search.Matches = nil
 		search.CurrentIndex = -1
@@ -1765,8 +1928,8 @@ func (e *Editor) updateSearchMatches() {
 		// Move cursor to show incremental match
 		if search.CurrentIndex >= 0 {
 			match := search.Matches[search.CurrentIndex]
-			buf.CursorRow = match.Row
-			buf.CursorCol = match.Col
+			pane.CursorRow = match.Row
+			pane.CursorCol = match.Col
 		}
 	} else {
 		search.CurrentIndex = -1
@@ -1805,10 +1968,10 @@ func (e *Editor) navigateToCurrentMatch() {
 		return
 	}
 
-	buf := e.activeBuffer()
+	pane := e.activePane()
 	match := search.Matches[search.CurrentIndex]
-	buf.CursorRow = match.Row
-	buf.CursorCol = match.Col
+	pane.CursorRow = match.Row
+	pane.CursorCol = match.Col
 }
 
 // nextMatch moves to the next match (wrapping at end)
@@ -1843,7 +2006,8 @@ func (e *Editor) exitSearchMode() {
 		return
 	}
 
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
 
 	// Save query for restoration on F4 re-entry (only if confirmed)
 	if search.Confirmed && search.Query != "" {
@@ -1853,16 +2017,16 @@ func (e *Editor) exitSearchMode() {
 	// If search was confirmed and we have a match, position cursor at end of match
 	if search.Confirmed && search.CurrentIndex >= 0 && search.CurrentIndex < len(search.Matches) {
 		match := search.Matches[search.CurrentIndex]
-		buf.CursorRow = match.Row
-		buf.CursorCol = match.Col + match.Length
+		pane.CursorRow = match.Row
+		pane.CursorCol = match.Col + match.Length
 		// Clamp to line bounds
-		if buf.CursorCol > len(buf.Lines[buf.CursorRow]) {
-			buf.CursorCol = len(buf.Lines[buf.CursorRow])
+		if pane.CursorCol > len(buf.Lines[pane.CursorRow]) {
+			pane.CursorCol = len(buf.Lines[pane.CursorRow])
 		}
 	} else {
 		// Return to CursorZero (cancelled or no match)
-		buf.CursorRow = search.CursorZeroRow
-		buf.CursorCol = search.CursorZeroCol
+		pane.CursorRow = search.CursorZeroRow
+		pane.CursorCol = search.CursorZeroCol
 	}
 
 	// Clear search state
@@ -1879,15 +2043,16 @@ func (e *Editor) replaceCurrentMatch() {
 		return
 	}
 
-	buf := e.activeBuffer()
+	pane := e.activePane()
+	buf := pane.Buffer
 	match := search.Matches[search.CurrentIndex]
 
 	// Snapshot for undo - get the text being replaced
 	oldLines := copyLines(buf.Lines)
 
 	// Position cursor at match start
-	buf.CursorRow = match.Row
-	buf.CursorCol = match.Col
+	pane.CursorRow = match.Row
+	pane.CursorCol = match.Col
 
 	// Delete the matched text
 	line := buf.Lines[match.Row]
@@ -1915,8 +2080,8 @@ func (e *Editor) replaceCurrentMatch() {
 	e.scheduleAutoSave()
 
 	// Save current cursor position before recalculating matches
-	cursorRow := buf.CursorRow
-	cursorCol := buf.CursorCol
+	cursorRow := pane.CursorRow
+	cursorCol := pane.CursorCol
 
 	// Recalculate matches after replacement
 	search.Matches = buf.FindAllMatches(search.Query)
@@ -1935,17 +2100,18 @@ func (e *Editor) replaceCurrentMatch() {
 
 // getCurrentWordPrefix returns the word being typed at cursor position
 func (e *Editor) getCurrentWordPrefix() (prefix string, startCol int) {
-	buf := e.activeBuffer()
-	if buf.CursorCol == 0 {
+	pane := e.activePane()
+	buf := pane.Buffer
+	if pane.CursorCol == 0 {
 		return "", 0
 	}
-	line := buf.Lines[buf.CursorRow]
+	line := buf.Lines[pane.CursorRow]
 	if len(line) == 0 {
 		return "", 0
 	}
 
 	// Ensure cursor is within line bounds
-	cursorCol := buf.CursorCol
+	cursorCol := pane.CursorCol
 	if cursorCol > len(line) {
 		cursorCol = len(line)
 	}
@@ -1972,8 +2138,9 @@ func (e *Editor) triggerAutocomplete() {
 		return
 	}
 
-	buf := e.activeBuffer()
-	words := ExtractWords(buf.Lines, buf.CursorRow, startCol)
+	pane := e.activePane()
+	buf := pane.Buffer
+	words := ExtractWords(buf.Lines, pane.CursorRow, startCol)
 	suggestions := FindSuggestions(words, prefix, 10)
 
 	if len(suggestions) == 0 {
@@ -2058,11 +2225,11 @@ func (e *Editor) handleMarkInput(ev *tcell.EventKey) bool {
 
 // setMark saves the current cursor position as a global mark with buffer reference
 func (e *Editor) setMark(id rune) {
-	buf := e.activeBuffer()
+	pane := e.activePane()
 	e.globalMarks[id] = GlobalMark{
-		Buffer: buf,
-		Row:    buf.CursorRow,
-		Col:    buf.CursorCol,
+		Buffer: pane.Buffer,
+		Row:    pane.CursorRow,
+		Col:    pane.CursorCol,
 	}
 }
 
@@ -2073,10 +2240,10 @@ func (e *Editor) jumpToMark(id rune) {
 		return // Mark doesn't exist, do nothing
 	}
 
-	// Find pane index for mark's buffer
+	// Find a pane viewing the mark's buffer
 	paneIdx := -1
-	for i, buf := range e.buffers {
-		if buf == mark.Buffer {
+	for i, p := range e.panes {
+		if p.Buffer == mark.Buffer {
 			paneIdx = i
 			break
 		}
@@ -2087,13 +2254,14 @@ func (e *Editor) jumpToMark(id rune) {
 		return
 	}
 
-	// Switch pane if mark is in different buffer
-	if paneIdx != e.activePane {
-		e.activePane = paneIdx
+	// Switch pane if mark is in different pane
+	if paneIdx != e.activePaneIdx {
+		e.activePaneIdx = paneIdx
 	}
 
-	// Position cursor with clamping
-	buf := e.buffers[paneIdx]
+	// Position cursor with clamping on the target pane
+	pane := e.panes[paneIdx]
+	buf := pane.Buffer
 
 	// Clamp row to valid range
 	row := mark.Row
@@ -2113,6 +2281,6 @@ func (e *Editor) jumpToMark(id rune) {
 		col = 0
 	}
 
-	buf.CursorRow = row
-	buf.CursorCol = col
+	pane.CursorRow = row
+	pane.CursorCol = col
 }

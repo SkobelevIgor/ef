@@ -13,14 +13,14 @@ type Screen struct {
 	screen tcell.Screen
 }
 
-// Pane represents the computed layout for a single buffer viewport
+// PaneLayout represents the computed layout for a single pane viewport
 // This is calculated during rendering based on screen size and split mode
-type Pane struct {
-	BufferIndex int // Index into Editor.buffers slice
-	StartX      int // Screen X coordinate of pane's top-left corner
-	StartY      int // Screen Y coordinate of pane's top-left corner
-	Width       int // Pane width in characters
-	Height      int // Pane height in lines
+type PaneLayout struct {
+	PaneIndex int // Index into Editor.panes slice
+	StartX    int // Screen X coordinate of pane's top-left corner
+	StartY    int // Screen Y coordinate of pane's top-left corner
+	Width     int // Pane width in characters
+	Height    int // Pane height in lines
 }
 
 // NewScreen creates and initializes a new screen
@@ -85,21 +85,21 @@ func (s *Screen) PostEvent(ev tcell.Event) error {
 }
 
 // calculatePaneLayoutHorizontal computes pane positions for horizontal (stacked) splits
-func calculatePaneLayoutHorizontal(numBuffers, width, height, contentStartY int) []Pane {
-	if numBuffers == 0 {
+func calculatePaneLayoutHorizontal(numPanes, width, height, contentStartY int) []PaneLayout {
+	if numPanes == 0 {
 		return nil
 	}
 
 	// Calculate available height (excluding separators between panes)
-	numSeparators := numBuffers - 1
+	numSeparators := numPanes - 1
 	availableHeight := height - numSeparators
 
 	// Calculate base pane height and distribute remainder
-	baseHeight := availableHeight / numBuffers
-	remainder := availableHeight % numBuffers
+	baseHeight := availableHeight / numPanes
+	remainder := availableHeight % numPanes
 
 	// Enforce minimum height
-	visiblePanes := numBuffers
+	visiblePanes := numPanes
 	for baseHeight < MinPaneHeightHorizontal && visiblePanes > 1 {
 		visiblePanes--
 		numSeparators = visiblePanes - 1
@@ -108,7 +108,7 @@ func calculatePaneLayoutHorizontal(numBuffers, width, height, contentStartY int)
 		remainder = availableHeight % visiblePanes
 	}
 
-	panes := make([]Pane, visiblePanes)
+	layouts := make([]PaneLayout, visiblePanes)
 	currentY := contentStartY
 
 	for i := 0; i < visiblePanes; i++ {
@@ -118,36 +118,36 @@ func calculatePaneLayoutHorizontal(numBuffers, width, height, contentStartY int)
 			paneHeight++
 		}
 
-		panes[i] = Pane{
-			BufferIndex: i,
-			StartX:      0,
-			StartY:      currentY,
-			Width:       width,
-			Height:      paneHeight,
+		layouts[i] = PaneLayout{
+			PaneIndex: i,
+			StartX:    0,
+			StartY:    currentY,
+			Width:     width,
+			Height:    paneHeight,
 		}
 
 		currentY += paneHeight + 1 // +1 for separator
 	}
 
-	return panes
+	return layouts
 }
 
 // calculatePaneLayoutVertical computes pane positions for vertical (side-by-side) splits
-func calculatePaneLayoutVertical(numBuffers, width, height, contentStartY int) []Pane {
-	if numBuffers == 0 {
+func calculatePaneLayoutVertical(numPanes, width, height, contentStartY int) []PaneLayout {
+	if numPanes == 0 {
 		return nil
 	}
 
 	// Calculate available width (excluding separators between panes)
-	numSeparators := numBuffers - 1
+	numSeparators := numPanes - 1
 	availableWidth := width - numSeparators
 
 	// Calculate base pane width and distribute remainder
-	baseWidth := availableWidth / numBuffers
-	remainder := availableWidth % numBuffers
+	baseWidth := availableWidth / numPanes
+	remainder := availableWidth % numPanes
 
 	// Enforce minimum width
-	visiblePanes := numBuffers
+	visiblePanes := numPanes
 	for baseWidth < MinPaneWidthVertical && visiblePanes > 1 {
 		visiblePanes--
 		numSeparators = visiblePanes - 1
@@ -156,7 +156,7 @@ func calculatePaneLayoutVertical(numBuffers, width, height, contentStartY int) [
 		remainder = availableWidth % visiblePanes
 	}
 
-	panes := make([]Pane, visiblePanes)
+	layouts := make([]PaneLayout, visiblePanes)
 	currentX := 0
 
 	for i := 0; i < visiblePanes; i++ {
@@ -166,18 +166,18 @@ func calculatePaneLayoutVertical(numBuffers, width, height, contentStartY int) [
 			paneWidth++
 		}
 
-		panes[i] = Pane{
-			BufferIndex: i,
-			StartX:      currentX,
-			StartY:      contentStartY,
-			Width:       paneWidth,
-			Height:      height,
+		layouts[i] = PaneLayout{
+			PaneIndex: i,
+			StartX:    currentX,
+			StartY:    contentStartY,
+			Width:     paneWidth,
+			Height:    height,
 		}
 
 		currentX += paneWidth + 1 // +1 for separator
 	}
 
-	return panes
+	return layouts
 }
 
 // renderHorizontalSeparator draws a horizontal line between panes
@@ -196,8 +196,8 @@ func (s *Screen) renderVerticalSeparator(x, startY, height int) {
 	}
 }
 
-// Render draws the buffer content
-func (s *Screen) Render(buffers []*Buffer, activePane int, mode Mode, inputState *InputState, splitMode SplitMode) {
+// Render draws the pane content
+func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState *InputState, splitMode SplitMode) {
 	s.screen.Clear()
 	width, height := s.screen.Size()
 
@@ -212,53 +212,53 @@ func (s *Screen) Render(buffers []*Buffer, activePane int, mode Mode, inputState
 	}
 
 	// Calculate pane layout based on split mode
-	var panes []Pane
+	var layouts []PaneLayout
 	if splitMode == SplitVertical {
-		panes = calculatePaneLayoutVertical(len(buffers), width, height, contentStartY)
+		layouts = calculatePaneLayoutVertical(len(panes), width, height, contentStartY)
 	} else {
-		panes = calculatePaneLayoutHorizontal(len(buffers), width, height, contentStartY)
+		layouts = calculatePaneLayoutHorizontal(len(panes), width, height, contentStartY)
 	}
 
-	// Clamp activePane to visible panes
-	if activePane >= len(panes) {
-		activePane = len(panes) - 1
+	// Clamp activePaneIdx to visible panes
+	if activePaneIdx >= len(layouts) {
+		activePaneIdx = len(layouts) - 1
 	}
-	if activePane < 0 {
-		activePane = 0
+	if activePaneIdx < 0 {
+		activePaneIdx = 0
 	}
 
 	// Render all panes
-	for i, pane := range panes {
-		if pane.BufferIndex >= len(buffers) {
+	for i, layout := range layouts {
+		if layout.PaneIndex >= len(panes) {
 			continue
 		}
-		buf := buffers[pane.BufferIndex]
+		pane := panes[layout.PaneIndex]
 
 		// Adjust scroll for this pane
-		lineNumWidth := getLineNumberWidth(buf)
-		textWidth := pane.Width - lineNumWidth
+		lineNumWidth := getLineNumberWidthFromPane(pane)
+		textWidth := layout.Width - lineNumWidth
 		if textWidth < 1 {
 			textWidth = 1
 		}
-		buf.AdjustScroll(textWidth, pane.Height)
+		pane.AdjustScroll(textWidth, layout.Height)
 
 		// Determine mode for this pane (only active pane shows current mode)
 		paneMode := ModeNormal
-		if i == activePane {
+		if i == activePaneIdx {
 			paneMode = mode
 		}
 
 		// Render the pane
-		s.renderPaneWithSearch(buf, pane.StartX, pane.StartY, pane.Width, pane.Height, paneMode, inputState.Search)
+		s.renderPaneWithSearch(pane, layout.StartX, layout.StartY, layout.Width, layout.Height, paneMode, inputState.Search)
 
 		// Draw separator after this pane (if not the last pane)
-		if i < len(panes)-1 {
+		if i < len(layouts)-1 {
 			if splitMode == SplitVertical {
 				// Vertical separator to the right of this pane
-				s.renderVerticalSeparator(pane.StartX+pane.Width, pane.StartY, pane.Height)
+				s.renderVerticalSeparator(layout.StartX+layout.Width, layout.StartY, layout.Height)
 			} else {
 				// Horizontal separator below this pane
-				s.renderHorizontalSeparator(pane.StartY+pane.Height, width)
+				s.renderHorizontalSeparator(layout.StartY+layout.Height, width)
 			}
 		}
 	}
@@ -272,13 +272,13 @@ func (s *Screen) Render(buffers []*Buffer, activePane int, mode Mode, inputState
 		}
 		cursorX := len(prompt) + len(inputState.Search.Query)
 		s.screen.ShowCursor(cursorX, 0)
-	} else if activePane < len(panes) && activePane < len(buffers) {
+	} else if activePaneIdx < len(layouts) && activePaneIdx < len(panes) {
 		// Cursor in active pane
-		activePaneLayout := panes[activePane]
-		activeBuf := buffers[activePane]
-		lineNumWidth := getLineNumberWidth(activeBuf)
+		activePaneLayout := layouts[activePaneIdx]
+		activePane := panes[activePaneIdx]
+		lineNumWidth := getLineNumberWidthFromPane(activePane)
 
-		cursorX, cursorY := getCursorScreenPos(activeBuf, activePaneLayout.Width, lineNumWidth)
+		cursorX, cursorY := getCursorScreenPosFromPane(activePane, activePaneLayout.Width, lineNumWidth)
 		cursorX += activePaneLayout.StartX
 		cursorY += activePaneLayout.StartY
 		s.screen.ShowCursor(cursorX, cursorY)
@@ -493,8 +493,9 @@ func (s *Screen) renderPane(buf *Buffer, startX, startY, width, height int, mode
 	}
 }
 
-// renderPaneWithSearch draws a buffer with optional search match highlighting
-func (s *Screen) renderPaneWithSearch(buf *Buffer, startX, startY, width, height int, mode Mode, search *SearchState) {
+// renderPaneWithSearch draws a pane with optional search match highlighting
+func (s *Screen) renderPaneWithSearch(pane *Pane, startX, startY, width, height int, mode Mode, search *SearchState) {
+	buf := pane.Buffer
 	lineNumWidth := lineNumberWidth(len(buf.Lines))
 	lineNumStyle := tcell.StyleDefault.Foreground(tcell.ColorGreen)
 	wrapStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
@@ -519,9 +520,9 @@ func (s *Screen) renderPaneWithSearch(buf *Buffer, startX, startY, width, height
 	}
 
 	screenRow := 0
-	for lineIdx := buf.ScrollOffset; lineIdx < len(buf.Lines) && screenRow < height; lineIdx++ {
+	for lineIdx := pane.ScrollOffset; lineIdx < len(buf.Lines) && screenRow < height; lineIdx++ {
 		line := buf.Lines[lineIdx]
-		isCurrentLine := lineIdx == buf.CursorRow
+		isCurrentLine := lineIdx == pane.CursorRow
 
 		// Calculate relative line number
 		var lineNum int
@@ -530,7 +531,7 @@ func (s *Screen) renderPaneWithSearch(buf *Buffer, startX, startY, width, height
 			lineNum = lineIdx + 1 // Absolute line number for current line
 			lineNumStyleToUse = currentLineNumStyle
 		} else {
-			lineNum = lineIdx - buf.CursorRow
+			lineNum = lineIdx - pane.CursorRow
 			if lineNum < 0 {
 				lineNum = -lineNum
 			}
@@ -604,8 +605,8 @@ func (s *Screen) renderPaneWithSearch(buf *Buffer, startX, startY, width, height
 					}
 				}
 
-				// Selection takes precedence over syntax highlighting
-				if buf.IsInSelection(lineIdx, charIdx) {
+				// Selection takes precedence over syntax highlighting (use pane's selection)
+				if pane.IsInSelection(lineIdx, charIdx) {
 					charStyle = selectionStyle
 				}
 
@@ -653,6 +654,11 @@ func isInSearchMatch(search *SearchState, row, col int) (int, bool) {
 // getLineNumberWidth returns the line number gutter width for a buffer
 func getLineNumberWidth(buf *Buffer) int {
 	return lineNumberWidth(len(buf.Lines))
+}
+
+// getLineNumberWidthFromPane returns the line number gutter width for a pane
+func getLineNumberWidthFromPane(pane *Pane) int {
+	return lineNumberWidth(len(pane.Buffer.Lines))
 }
 
 // getVisualColumn calculates the visual column position accounting for tab expansion
@@ -709,6 +715,48 @@ func getCursorScreenPos(buf *Buffer, paneWidth, lineNumWidth int) (screenX, scre
 	} else {
 		// Calculate visual column accounting for tabs
 		visualCol := getVisualColumn(cursorLine, buf.CursorCol, tabStop)
+		// Which wrapped row is the cursor on?
+		wrapRow := visualCol / textWidth
+		screenY += wrapRow
+		screenX = lineNumWidth + (visualCol % textWidth)
+	}
+
+	return screenX, screenY
+}
+
+// getCursorScreenPosFromPane calculates the screen position of the cursor for a pane
+func getCursorScreenPosFromPane(pane *Pane, paneWidth, lineNumWidth int) (screenX, screenY int) {
+	buf := pane.Buffer
+	textWidth := paneWidth - lineNumWidth
+	if textWidth < 1 {
+		textWidth = 1
+	}
+
+	tabStop := buf.Config.TabStop
+	if tabStop <= 0 {
+		tabStop = 4
+	}
+
+	screenY = 0
+
+	// Count screen rows used by lines from ScrollOffset to cursor
+	for lineIdx := pane.ScrollOffset; lineIdx < pane.CursorRow && lineIdx < len(buf.Lines); lineIdx++ {
+		line := buf.Lines[lineIdx]
+		if len(line) == 0 {
+			screenY++
+		} else {
+			visualWidth := getVisualLineWidth(line, tabStop)
+			screenY += (visualWidth + textWidth - 1) / textWidth // Ceiling division
+		}
+	}
+
+	// Calculate position within the cursor's line
+	cursorLine := buf.Lines[pane.CursorRow]
+	if len(cursorLine) == 0 || pane.CursorCol == 0 {
+		screenX = lineNumWidth
+	} else {
+		// Calculate visual column accounting for tabs
+		visualCol := getVisualColumn(cursorLine, pane.CursorCol, tabStop)
 		// Which wrapped row is the cursor on?
 		wrapRow := visualCol / textWidth
 		screenY += wrapRow
