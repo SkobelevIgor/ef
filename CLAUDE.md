@@ -13,6 +13,8 @@
 - N/A (in-memory global registry) (004-global-marks)
 - Go 1.21+ + github.com/gdamore/tcell/v2 (terminal rendering) (005-multi-file-splits)
 - In-memory buffers with file persistence via existing Save/Load (006-shared-buffer)
+- Python 3.x (script, not compiled) + Python standard library only (os, sys, shutil, tempfile, importlib, uuid) (007-e2e-runner)
+- N/A (filesystem-only temp directories) (007-e2e-runner)
 
 ## Recent Changes
 - 001-search-mode: Added Go 1.x (existing project) + github.com/gdamore/tcell/v2 (existing)
