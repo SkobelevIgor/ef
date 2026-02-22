@@ -60,7 +60,7 @@ def execute_test(name, ef_path):
         module.run(ef_path)
         return None
 
-    except Exception as e:
+    except BaseException as e:
         return str(e)
 
     finally:
