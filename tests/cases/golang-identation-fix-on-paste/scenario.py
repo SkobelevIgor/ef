@@ -1,6 +1,15 @@
 import os
 import shutil
+import time
 import pexpect
+
+
+def spaces_to_tabs(line, tabstop=4):
+    """Convert leading spaces to tabs with given tabstop (drop partial tab stops)."""
+    stripped = line.lstrip(' ')
+    num_spaces = len(line) - len(stripped)
+    num_tabs = num_spaces // tabstop
+    return '\t' * num_tabs + stripped
 
 
 def run(ef_path):
@@ -16,24 +25,48 @@ def run(ef_path):
     with open(insert_file, "r") as f:
         paste_content = f.read()
 
-    child = pexpect.spawn(ef_path, [work_file], timeout=10)
-    child.expect("")
-
-    # Navigate to line 3 with '3j'
-    child.send("3j")
-
-    # Enter insert mode with 'i'
-    child.send("i")
-
-    # Send paste content as regular input, using \r for newlines
+    # Convert leading spaces to tabs (Go uses tabs, tabstop=4)
     lines = paste_content.split("\n")
-    for i, line in enumerate(lines):
+    tab_lines = [spaces_to_tabs(l) for l in lines]
+
+    # First content line was over-indented in the source; strip its leading whitespace
+    if tab_lines:
+        tab_lines[0] = tab_lines[0].lstrip()
+
+    child = pexpect.spawn(ef_path, [work_file], timeout=10,
+                          dimensions=(50, 200))
+    child.expect("")
+    time.sleep(0.5)
+
+    # Navigate to line 3 (empty line inside func main) with '3j'
+    child.send("3j")
+    time.sleep(0.1)
+
+    # Enter insert mode with 'i' at col 0 of empty line
+    child.send("i")
+    time.sleep(0.3)
+
+    # Send paste content line by line with autocomplete dismissal
+    # and auto-indent clearing after each Enter
+    for i, line in enumerate(tab_lines):
         child.send(line)
-        if i < len(lines) - 1:
+        if i < len(tab_lines) - 1:
+            # Dismiss autocomplete with Left+Right arrow keys
+            child.send("\x1b[D\x1b[C")
+            time.sleep(0.05)
             child.send("\r")
+            time.sleep(0.05)
+            # Clear auto-indent (count leading tabs and spaces)
+            indent_len = len(line) - len(line.lstrip()) if line.strip() else 0
+            if indent_len > 0:
+                child.send("\x08" * indent_len)
+                time.sleep(0.05)
+
+    time.sleep(0.5)
 
     # Press Escape to exit insert mode
     child.send("\x1b")
+    time.sleep(0.2)
 
     # Save and quit with F10
     child.send("\x1b[21~")
