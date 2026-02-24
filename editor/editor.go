@@ -71,6 +71,7 @@ type Editor struct {
 	// Insert session tracking for reindent on exit
 	insertStartRow int
 	insertStartCol int
+
 }
 
 // activePane returns the currently active pane
@@ -224,6 +225,10 @@ func (e *Editor) Run() error {
 			e.screen.screen.Sync()
 		case *FileChangedEvent:
 			e.handleExternalFileChange(ev.Filename)
+		case *ReindentEvent:
+			if e.mode == ModeInsert {
+				e.reindentInsertSession()
+			}
 		}
 	}
 }
@@ -235,6 +240,7 @@ func (e *Editor) scheduleAutoSave() {
 	}
 	e.autoSaveTimer = time.AfterFunc(autoSaveDelay, func() {
 		e.saveAllModified()
+		e.screen.PostEvent(&ReindentEvent{when: time.Now()})
 	})
 }
 
@@ -673,13 +679,15 @@ func (e *Editor) startInsertSession() {
 	e.insertStartCol = buf.CursorCol
 }
 
-// endInsertSession reindents lines if multiple lines were created during the session
+// endInsertSession reindents lines if multiple lines were created during the session.
+// Single-line sessions are skipped — they already have correct indent from o/O/Enter.
 func (e *Editor) endInsertSession() {
 	buf := e.activeBuffer()
 	endRow := buf.CursorRow
 	startRow := e.insertStartRow
 
-	if startRow > endRow || startRow < 0 {
+	// Only reindent multi-line sessions
+	if endRow <= startRow || startRow < 0 {
 		return
 	}
 
@@ -689,6 +697,72 @@ func (e *Editor) endInsertSession() {
 
 	contextIndent := buf.GetPrevNonEmptyLineIndent(startRow)
 	buf.ReindentLines(startRow, endRow, contextIndent)
+
+	// Clamp cursor column to the current line length after reindent
+	lineLen := len(buf.Lines[buf.CursorRow])
+	if buf.CursorCol > lineLen {
+		buf.CursorCol = lineLen
+	}
+}
+
+// ReindentEvent is a custom tcell event for debounced reindentation
+type ReindentEvent struct {
+	when time.Time
+}
+
+// When returns the time when the event was created
+func (e *ReindentEvent) When() time.Time {
+	return e.when
+}
+
+// reindentInsertSession reindents pasted text without leaving insert mode.
+// Only activates for multi-line insert sessions (i.e. pastes). Single-line
+// edits already have correct indentation from o/O/Enter.
+func (e *Editor) reindentInsertSession() {
+	buf := e.activeBuffer()
+	cursorRow := buf.CursorRow
+	startRow := e.insertStartRow
+
+	// Only reindent multi-line sessions (paste). Single-line typing
+	// already has correct indent from o/O/InsertNewlineWithIndent.
+	if cursorRow <= startRow || startRow < 0 {
+		return
+	}
+
+	if buf.FileType == "" || !buf.Config.AutoIndentation {
+		return
+	}
+
+	endRow := cursorRow
+	// If cursor row is whitespace-only, exclude it — the user hasn't
+	// typed real content there yet (e.g. paste ended with a newline).
+	if !isLineEmpty(buf.Lines[cursorRow]) {
+		endRow = cursorRow - 1
+	}
+
+	if startRow > endRow {
+		return
+	}
+
+	contextIndent := buf.GetPrevNonEmptyLineIndent(startRow)
+
+	if endRow == cursorRow {
+		// Cursor row included — adjust cursor col for indent change
+		oldLen := len(buf.Lines[cursorRow])
+		buf.ReindentLines(startRow, endRow, contextIndent)
+		newLen := len(buf.Lines[cursorRow])
+		buf.CursorCol += newLen - oldLen
+		if buf.CursorCol < 0 {
+			buf.CursorCol = 0
+		}
+		if buf.CursorCol > newLen {
+			buf.CursorCol = newLen
+		}
+	} else {
+		buf.ReindentLines(startRow, endRow, contextIndent)
+	}
+
+	e.activePane().SyncFromBuffer()
 }
 
 // handleInsertMode handles key events in insert mode (text editing)

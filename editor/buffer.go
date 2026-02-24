@@ -235,10 +235,9 @@ func (b *Buffer) InsertNewlineWithIndent() {
 
 // OpenLineBelow opens a new line below the current line with auto-indentation (o command)
 func (b *Buffer) OpenLineBelow() {
-	// Get indentation from current line
 	var indent []rune
 	if b.Config.AutoIndentation {
-		indent = b.getLeadingWhitespace(b.Lines[b.CursorRow])
+		indent = b.smartIndentForNewLine(b.CursorRow)
 	}
 
 	// Create new line with indentation
@@ -251,6 +250,43 @@ func (b *Buffer) OpenLineBelow() {
 	// Move cursor to new line, at end of indentation
 	b.CursorRow++
 	b.CursorCol = len(indent)
+}
+
+// smartIndentForNewLine computes indentation for a new line opened after row.
+// It starts from the current line's indent and adjusts based on content:
+// indent after '{', '(', ':'; dedent if line ends with ')' with unmatched parens.
+func (b *Buffer) smartIndentForNewLine(row int) []rune {
+	line := b.Lines[row]
+	stripped := stripLeadingWhitespace(line)
+	level := b.getIndentLevel(line)
+
+	if len(stripped) > 0 {
+		last := stripped[len(stripped)-1]
+		openParens := countRune(stripped, '(')
+		closeParens := countRune(stripped, ')')
+		openBraces := countRune(stripped, '{')
+		closeBraces := countRune(stripped, '}')
+
+		// Line ends with opener or colon — indent
+		if last == ':' || last == '{' {
+			level++
+		} else if last == '(' && openParens > closeParens {
+			level++
+		}
+
+		// Line ends with closer and has net closing — dedent
+		if last == ')' && closeParens > openParens {
+			level--
+		}
+		if last == '}' && closeBraces > openBraces {
+			level--
+		}
+	}
+
+	if level < 0 {
+		level = 0
+	}
+	return b.makeIndent(level)
 }
 
 // OpenLineAbove opens a new line above the current line with auto-indentation (O command)
@@ -812,6 +848,7 @@ func (b *Buffer) ReindentLines(startRow, endRow, contextIndent int) {
 
 	currentIndent := contextIndent
 	braceDepth := 0
+	prevLineContinuation := false
 
 	for row := startRow; row <= endRow; row++ {
 		line := b.Lines[row]
@@ -876,6 +913,19 @@ func (b *Buffer) ReindentLines(startRow, endRow, contextIndent int) {
 		// ':' at end of line (Python block opener)
 		if last == ':' {
 			currentIndent++
+		}
+
+		// '\' at end of line (Python line continuation) — indent next line
+		if last == '\\' {
+			if !prevLineContinuation {
+				currentIndent++
+			}
+			prevLineContinuation = true
+		} else {
+			if prevLineContinuation {
+				currentIndent--
+			}
+			prevLineContinuation = false
 		}
 
 		if currentIndent < 0 {
