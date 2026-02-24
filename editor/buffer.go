@@ -684,6 +684,207 @@ func (b *Buffer) UnindentRange(startRow, endRow int) {
 	b.Modified = true
 }
 
+// getIndentLevel returns the indent level of a line.
+// Tabs count as 1 level, shiftWidth spaces count as 1 level.
+func (b *Buffer) getIndentLevel(line []rune) int {
+	sw := b.GetShiftWidth()
+	level := 0
+	spaces := 0
+	for _, ch := range line {
+		if ch == '\t' {
+			level++
+			spaces = 0
+		} else if ch == ' ' {
+			spaces++
+			if spaces >= sw {
+				level++
+				spaces = 0
+			}
+		} else {
+			break
+		}
+	}
+	return level
+}
+
+// makeIndent creates indentation whitespace for the given level
+func (b *Buffer) makeIndent(level int) []rune {
+	if level <= 0 {
+		return nil
+	}
+	if b.Config.ExpandTab {
+		sw := b.GetShiftWidth()
+		indent := make([]rune, level*sw)
+		for i := range indent {
+			indent[i] = ' '
+		}
+		return indent
+	}
+	indent := make([]rune, level)
+	for i := range indent {
+		indent[i] = '\t'
+	}
+	return indent
+}
+
+// isLineEmpty returns true if a line is empty or contains only whitespace
+func isLineEmpty(line []rune) bool {
+	for _, ch := range line {
+		if ch != ' ' && ch != '\t' {
+			return true
+		}
+	}
+	return false
+}
+
+// stripLeadingWhitespace returns a line with leading whitespace removed
+func stripLeadingWhitespace(line []rune) []rune {
+	for i, ch := range line {
+		if ch != ' ' && ch != '\t' {
+			return line[i:]
+		}
+	}
+	return nil
+}
+
+// GetPrevNonEmptyLineIndent returns the indent level of the first non-empty
+// line above row. If the line ends with { or :, adds +1 for brace-open context.
+func (b *Buffer) GetPrevNonEmptyLineIndent(row int) int {
+	for r := row - 1; r >= 0; r-- {
+		line := b.Lines[r]
+		if !isLineEmpty(line) {
+			continue
+		}
+		level := b.getIndentLevel(line)
+		// Check if line ends with opening brace/colon (brace-aware indent)
+		if ch := lastNonWhitespace(line); ch == '{' || ch == ':' {
+			level++
+		}
+		return level
+	}
+	return 0
+}
+
+// lastNonWhitespace returns the last non-whitespace character in a line, or 0
+func lastNonWhitespace(line []rune) rune {
+	for i := len(line) - 1; i >= 0; i-- {
+		if line[i] != ' ' && line[i] != '\t' {
+			return line[i]
+		}
+	}
+	return 0
+}
+
+// countRune counts occurrences of a rune in a slice
+func countRune(line []rune, ch rune) int {
+	n := 0
+	for _, r := range line {
+		if r == ch {
+			n++
+		}
+	}
+	return n
+}
+
+// firstNonWhitespace returns the first non-whitespace character in a line, or 0
+func firstNonWhitespace(line []rune) rune {
+	for _, ch := range line {
+		if ch != ' ' && ch != '\t' {
+			return ch
+		}
+	}
+	return 0
+}
+
+// ReindentLines reindents a range of lines using block-structure-aware
+// indentation. It computes the proper indent for each line based on
+// brace/colon patterns rather than preserving original relative indentation.
+func (b *Buffer) ReindentLines(startRow, endRow, contextIndent int) {
+	if startRow > endRow {
+		return
+	}
+	if startRow < 0 {
+		startRow = 0
+	}
+	if endRow >= len(b.Lines) {
+		endRow = len(b.Lines) - 1
+	}
+
+	currentIndent := contextIndent
+	braceDepth := 0
+
+	for row := startRow; row <= endRow; row++ {
+		line := b.Lines[row]
+		stripped := stripLeadingWhitespace(line)
+
+		// Empty/whitespace-only lines
+		if len(stripped) == 0 {
+			if len(line) > 0 {
+				b.Lines[row] = nil
+			}
+			// Reset indent at paragraph boundaries when outside braces
+			if braceDepth <= 0 {
+				currentIndent = contextIndent
+			}
+			continue
+		}
+
+		openBraces := countRune(stripped, '{')
+		closeBraces := countRune(stripped, '}')
+		openParens := countRune(stripped, '(')
+		closeParens := countRune(stripped, ')')
+
+		first := stripped[0]
+		last := stripped[len(stripped)-1]
+
+		// If line starts with a closer, decrease indent for this line
+		closerAtStart := first == '}' || first == ')'
+		lineIndent := currentIndent
+		if closerAtStart {
+			lineIndent--
+		}
+		if lineIndent < 0 {
+			lineIndent = 0
+		}
+
+		// Apply indent
+		indent := b.makeIndent(lineIndent)
+		newLine := make([]rune, len(indent)+len(stripped))
+		copy(newLine, indent)
+		copy(newLine[len(indent):], stripped)
+		b.Lines[row] = newLine
+
+		// Track brace depth for paragraph reset logic
+		braceDepth += openBraces - closeBraces
+
+		// Update currentIndent for next line based on net braces
+		netBraces := openBraces - closeBraces
+		if closerAtStart && first == '}' {
+			netBraces++
+		}
+		currentIndent = lineIndent + netBraces
+
+		// Unmatched opening paren at end of line (multi-line call)
+		if last == '(' && openParens > closeParens {
+			currentIndent++
+		}
+		// Unmatched closing paren at end of line
+		if last == ')' && closeParens > openParens && first != ')' {
+			currentIndent--
+		}
+
+		// ':' at end of line (Python block opener)
+		if last == ':' {
+			currentIndent++
+		}
+
+		if currentIndent < 0 {
+			currentIndent = 0
+		}
+	}
+	b.Modified = true
+}
+
 // scrollMargin is the number of lines to keep visible above/below cursor
 const scrollMargin = 5
 

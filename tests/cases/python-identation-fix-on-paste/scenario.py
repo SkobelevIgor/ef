@@ -5,7 +5,7 @@ import pexpect
 
 
 def run(ef_path):
-    test_dir = os.getcwd()
+    test_dir = os.path.dirname(os.path.abspath(__file__))
     source_file = os.path.join(test_dir, "test.py")
     insert_file = os.path.join(test_dir, "py_insert.txt")
     expected_file = os.path.join(test_dir, "expected.py")
@@ -17,45 +17,29 @@ def run(ef_path):
     with open(insert_file, "r") as f:
         paste_content = f.read()
 
+    # Python uses spaces (expandtab), no conversion needed
+    lines = paste_content.split("\n")
+
+    # First content line: strip leading whitespace (over-indented in source)
+    if lines:
+        lines[0] = lines[0].lstrip()
+
     child = pexpect.spawn(ef_path, [work_file], timeout=10,
                           dimensions=(50, 200))
     child.expect("")
     time.sleep(0.5)
 
-    # Navigate to line 2 with '2j'
-    child.send("2j")
+    # Navigate to line 2 with 'j'
+    child.send("j")
     time.sleep(0.1)
 
-    # Enter insert mode with 'o' (opens new line below)
-    # Auto-indent copies 4 spaces from 'def main(self):'
+    # Open new line below 'def main(self):' with 'o'
     child.send("o")
     time.sleep(0.3)
 
-    # Clear auto-indent from 'o' (4 backspaces)
-    child.send("\x08" * 4)
-    time.sleep(0.1)
-
-    # Split paste content into lines
-    lines = paste_content.split("\n")
-
-    # Send lines 1-5 at once (autocomplete will merge them since each line
-    # ends with a repeated word like "data_source = data_source").
-    # The empty line 6 will produce two \r chars — first consumed by
-    # autocomplete, second creates a newline.
-    # Lines 1-5 + empty line 6
-    first_block = "\r".join(lines[:6]) + "\r"
-    child.send(first_block)
-    time.sleep(0.3)
-
-    # At this point a newline was created (from the second \r of the empty line).
-    # Auto-indent copied 4 spaces from the merged line. Clear it.
-    child.send("\x08" * 4)
-    time.sleep(0.1)
-
-    # Send remaining lines (7-18) one by one with autocomplete dismissal
+    # Send paste content line by line with autocomplete dismissal
     # and auto-indent clearing after each Enter
-    for i in range(6, len(lines)):
-        line = lines[i]
+    for i, line in enumerate(lines):
         child.send(line)
         if i < len(lines) - 1:
             # Dismiss autocomplete with Left+Right arrow keys
@@ -63,10 +47,10 @@ def run(ef_path):
             time.sleep(0.05)
             child.send("\r")
             time.sleep(0.05)
-            # Clear auto-indent (equals leading whitespace of line just typed)
-            indent = len(line) - len(line.lstrip()) if line.strip() else 0
-            if indent > 0:
-                child.send("\x08" * indent)
+            # Clear auto-indent (count leading spaces)
+            indent_len = len(line) - len(line.lstrip()) if line.strip() else 0
+            if indent_len > 0:
+                child.send("\x08" * indent_len)
                 time.sleep(0.05)
 
     time.sleep(0.5)

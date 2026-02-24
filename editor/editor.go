@@ -67,6 +67,10 @@ type Editor struct {
 
 	// Global marks registry (cross-file navigation)
 	globalMarks map[rune]GlobalMark
+
+	// Insert session tracking for reindent on exit
+	insertStartRow int
+	insertStartCol int
 }
 
 // activePane returns the currently active pane
@@ -387,10 +391,16 @@ func (e *Editor) handleKey(ev *tcell.EventKey) bool {
 	}
 
 	// Global keys that work in all modes
-	switch ev.Key() {
-	case tcell.KeyF10:
+	// Note: Escape+F10 through pty may arrive as Alt+F10, handle both
+	if ev.Key() == tcell.KeyF10 || ev.Name() == "Alt+F10" {
+		if e.mode == ModeInsert {
+			e.endInsertSession()
+			e.activePane().SyncFromBuffer()
+		}
 		e.saveAllModified()
 		return true // quit
+	}
+	switch ev.Key() {
 	case tcell.KeyCtrlZ:
 		e.suspend()
 		return false
@@ -590,6 +600,7 @@ func (e *Editor) executeMappingNormalRune(r rune) {
 		pane.SyncToBuffer()
 		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
+		e.startInsertSession()
 	case 'a':
 		// Append after cursor
 		if pane.CursorCol < len(buf.Lines[pane.CursorRow]) {
@@ -598,18 +609,21 @@ func (e *Editor) executeMappingNormalRune(r rune) {
 		pane.SyncToBuffer()
 		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
+		e.startInsertSession()
 	case 'A':
 		// Append at end of line
 		pane.MoveToLineEnd()
 		pane.SyncToBuffer()
 		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
+		e.startInsertSession()
 	case 'I':
 		// Insert at beginning of line
 		pane.MoveToLineStart()
 		pane.SyncToBuffer()
 		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
+		e.startInsertSession()
 	case 'o':
 		// Open line below
 		pane.SyncToBuffer()
@@ -617,6 +631,7 @@ func (e *Editor) executeMappingNormalRune(r rune) {
 		buf.OpenLineBelow()
 		pane.SyncFromBuffer()
 		e.mode = ModeInsert
+		e.startInsertSession()
 		e.scheduleAutoSave()
 	case 'O':
 		// Open line above
@@ -625,6 +640,7 @@ func (e *Editor) executeMappingNormalRune(r rune) {
 		buf.OpenLineAbove()
 		pane.SyncFromBuffer()
 		e.mode = ModeInsert
+		e.startInsertSession()
 		e.scheduleAutoSave()
 
 	// Deletion
@@ -636,6 +652,43 @@ func (e *Editor) executeMappingNormalRune(r rune) {
 		e.history.CommitSession(buf.Lines)
 		e.scheduleAutoSave()
 	}
+}
+
+// reindentPastedRange applies reindentation to a range returned by pasteAfter/pasteBefore
+func (e *Editor) reindentPastedRange(buf *Buffer, firstRow, lastRow int) {
+	if firstRow < 0 || lastRow < 0 || firstRow > lastRow {
+		return
+	}
+	if buf.FileType == "" || !buf.Config.AutoIndentation {
+		return
+	}
+	contextIndent := buf.GetPrevNonEmptyLineIndent(firstRow)
+	buf.ReindentLines(firstRow, lastRow, contextIndent)
+}
+
+// startInsertSession records the cursor position when entering insert mode
+func (e *Editor) startInsertSession() {
+	buf := e.activeBuffer()
+	e.insertStartRow = buf.CursorRow
+	e.insertStartCol = buf.CursorCol
+}
+
+// endInsertSession reindents lines if multiple lines were created during the session
+func (e *Editor) endInsertSession() {
+	buf := e.activeBuffer()
+	endRow := buf.CursorRow
+	startRow := e.insertStartRow
+
+	if startRow > endRow || startRow < 0 {
+		return
+	}
+
+	if buf.FileType == "" || !buf.Config.AutoIndentation {
+		return
+	}
+
+	contextIndent := buf.GetPrevNonEmptyLineIndent(startRow)
+	buf.ReindentLines(startRow, endRow, contextIndent)
 }
 
 // handleInsertMode handles key events in insert mode (text editing)
@@ -650,13 +703,21 @@ func (e *Editor) handleInsertMode(ev *tcell.EventKey) bool {
 	// Handle autocomplete keys when dropdown is visible
 	if ac != nil && ac.Active {
 		switch ev.Key() {
-		case tcell.KeyTab, tcell.KeyEnter:
+		case tcell.KeyTab:
 			e.acceptAutocomplete()
 			pane.SyncFromBuffer()
 			return false
-		case tcell.KeyEscape:
+		case tcell.KeyEnter:
+			// If the suggestion matches what's already typed, dismiss autocomplete
+			// and let Enter create a newline
+			sel := ac.Selected()
+			if sel != nil && sel.Word != ac.Prefix {
+				e.acceptAutocomplete()
+				pane.SyncFromBuffer()
+				return false
+			}
+			// Suggestion matches prefix — dismiss and fall through to Enter handler
 			e.inputState.Autocomplete = nil
-			return false
 		case tcell.KeyCtrlN, tcell.KeyDown:
 			ac.Next()
 			return false
@@ -664,10 +725,13 @@ func (e *Editor) handleInsertMode(ev *tcell.EventKey) bool {
 			ac.Prev()
 			return false
 		}
+		// Note: Escape falls through to main handler to also exit insert mode
 	}
 
 	switch ev.Key() {
 	case tcell.KeyEscape:
+		e.endInsertSession()
+		pane.SyncFromBuffer()
 		e.inputState.Autocomplete = nil
 		e.mode = ModeNormal
 		e.history.CommitSession(buf.Lines)
@@ -847,6 +911,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		pane.SyncToBuffer()
 		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
+		e.startInsertSession()
 		e.inputState.Reset()
 	case 'a':
 		// Append after cursor
@@ -856,6 +921,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		pane.SyncToBuffer()
 		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
+		e.startInsertSession()
 		e.inputState.Reset()
 	case 'A':
 		// Append at end of line
@@ -863,6 +929,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		pane.SyncToBuffer()
 		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
+		e.startInsertSession()
 		e.inputState.Reset()
 	case 'I':
 		// Insert at beginning of line
@@ -870,6 +937,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		pane.SyncToBuffer()
 		e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 		e.mode = ModeInsert
+		e.startInsertSession()
 		e.inputState.Reset()
 	case 'o':
 		// Open line below - snapshot before modification
@@ -878,6 +946,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		buf.OpenLineBelow()
 		pane.SyncFromBuffer()
 		e.mode = ModeInsert
+		e.startInsertSession()
 		e.inputState.Reset()
 		e.scheduleAutoSave()
 	case 'O':
@@ -887,6 +956,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		buf.OpenLineAbove()
 		pane.SyncFromBuffer()
 		e.mode = ModeInsert
+		e.startInsertSession()
 		e.inputState.Reset()
 		e.scheduleAutoSave()
 	case 'v':
@@ -991,7 +1061,8 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 			pane.SyncToBuffer()
 			oldLines := copyLines(buf.Lines)
 			cursorRow, cursorCol := pane.CursorRow, pane.CursorCol
-			e.pasteAfter()
+			firstRow, lastRow := e.pasteAfter()
+			e.reindentPastedRange(buf, firstRow, lastRow)
 			pane.SyncFromBuffer()
 			e.history.Push(&Change{
 				Type:    ChangeReplace,
@@ -1010,7 +1081,8 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 			pane.SyncToBuffer()
 			oldLines := copyLines(buf.Lines)
 			cursorRow, cursorCol := pane.CursorRow, pane.CursorCol
-			e.pasteBefore()
+			firstRow, lastRow := e.pasteBefore()
+			e.reindentPastedRange(buf, firstRow, lastRow)
 			pane.SyncFromBuffer()
 			e.history.Push(&Change{
 				Type:    ChangeReplace,
@@ -1044,84 +1116,96 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 }
 
 // pasteAfter pastes clipboard content after cursor (p command)
-func (e *Editor) pasteAfter() {
+// Returns the range of inserted lines (firstRow, lastRow)
+func (e *Editor) pasteAfter() (int, int) {
 	if len(e.clipboard) == 0 {
-		return
+		return -1, -1
 	}
 
 	buf := e.activeBuffer()
 
 	if e.clipboardLine {
 		// Paste whole lines after current line
+		firstRow := buf.CursorRow + 1
 		for i := len(e.clipboard) - 1; i >= 0; i-- {
 			lineCopy := make([]rune, len(e.clipboard[i]))
 			copy(lineCopy, e.clipboard[i])
 			buf.InsertLineAfter(buf.CursorRow, lineCopy)
 		}
+		lastRow := firstRow + len(e.clipboard) - 1
 		buf.CursorRow++
 		buf.CursorCol = 0
-	} else {
-		// Paste text after cursor position
-		if len(e.clipboard) == 1 {
-			// Single line paste
-			line := buf.Lines[buf.CursorRow]
-			insertPos := buf.CursorCol + 1
-			if insertPos > len(line) {
-				insertPos = len(line)
-			}
-			newLine := make([]rune, len(line)+len(e.clipboard[0]))
-			copy(newLine[:insertPos], line[:insertPos])
-			copy(newLine[insertPos:], e.clipboard[0])
-			copy(newLine[insertPos+len(e.clipboard[0]):], line[insertPos:])
-			buf.Lines[buf.CursorRow] = newLine
-			buf.CursorCol = insertPos + len(e.clipboard[0]) - 1
-			if buf.CursorCol < 0 {
-				buf.CursorCol = 0
-			}
-		} else {
-			// Multi-line paste
-			line := buf.Lines[buf.CursorRow]
-			insertPos := buf.CursorCol + 1
-			if insertPos > len(line) {
-				insertPos = len(line)
-			}
+		buf.Modified = true
+		e.scheduleAutoSave()
+		return firstRow, lastRow
+	}
 
-			// First part of current line + first clipboard line
-			firstPart := make([]rune, insertPos+len(e.clipboard[0]))
-			copy(firstPart[:insertPos], line[:insertPos])
-			copy(firstPart[insertPos:], e.clipboard[0])
-
-			// Last clipboard line + rest of current line
-			lastPart := make([]rune, len(e.clipboard[len(e.clipboard)-1])+len(line)-insertPos)
-			copy(lastPart, e.clipboard[len(e.clipboard)-1])
-			copy(lastPart[len(e.clipboard[len(e.clipboard)-1]):], line[insertPos:])
-
-			// Build new lines
-			newLines := make([][]rune, len(buf.Lines)+len(e.clipboard)-1)
-			copy(newLines[:buf.CursorRow], buf.Lines[:buf.CursorRow])
-			newLines[buf.CursorRow] = firstPart
-
-			// Middle clipboard lines
-			for i := 1; i < len(e.clipboard)-1; i++ {
-				lineCopy := make([]rune, len(e.clipboard[i]))
-				copy(lineCopy, e.clipboard[i])
-				newLines[buf.CursorRow+i] = lineCopy
-			}
-
-			newLines[buf.CursorRow+len(e.clipboard)-1] = lastPart
-			copy(newLines[buf.CursorRow+len(e.clipboard):], buf.Lines[buf.CursorRow+1:])
-
-			buf.Lines = newLines
-			buf.CursorRow += len(e.clipboard) - 1
-			buf.CursorCol = len(e.clipboard[len(e.clipboard)-1]) - 1
-			if buf.CursorCol < 0 {
-				buf.CursorCol = 0
-			}
+	// Paste text after cursor position
+	if len(e.clipboard) == 1 {
+		// Single line paste - inline, no reindent needed
+		line := buf.Lines[buf.CursorRow]
+		insertPos := buf.CursorCol + 1
+		if insertPos > len(line) {
+			insertPos = len(line)
 		}
+		newLine := make([]rune, len(line)+len(e.clipboard[0]))
+		copy(newLine[:insertPos], line[:insertPos])
+		copy(newLine[insertPos:], e.clipboard[0])
+		copy(newLine[insertPos+len(e.clipboard[0]):], line[insertPos:])
+		buf.Lines[buf.CursorRow] = newLine
+		buf.CursorCol = insertPos + len(e.clipboard[0]) - 1
+		if buf.CursorCol < 0 {
+			buf.CursorCol = 0
+		}
+		buf.Modified = true
+		e.scheduleAutoSave()
+		return -1, -1 // inline single-line, no reindent
+	}
+
+	// Multi-line paste
+	line := buf.Lines[buf.CursorRow]
+	insertPos := buf.CursorCol + 1
+	if insertPos > len(line) {
+		insertPos = len(line)
+	}
+	firstRow := buf.CursorRow + 1 // first fully new line
+
+	// First part of current line + first clipboard line
+	firstPart := make([]rune, insertPos+len(e.clipboard[0]))
+	copy(firstPart[:insertPos], line[:insertPos])
+	copy(firstPart[insertPos:], e.clipboard[0])
+
+	// Last clipboard line + rest of current line
+	lastPart := make([]rune, len(e.clipboard[len(e.clipboard)-1])+len(line)-insertPos)
+	copy(lastPart, e.clipboard[len(e.clipboard)-1])
+	copy(lastPart[len(e.clipboard[len(e.clipboard)-1]):], line[insertPos:])
+
+	// Build new lines
+	newLines := make([][]rune, len(buf.Lines)+len(e.clipboard)-1)
+	copy(newLines[:buf.CursorRow], buf.Lines[:buf.CursorRow])
+	newLines[buf.CursorRow] = firstPart
+
+	// Middle clipboard lines
+	for i := 1; i < len(e.clipboard)-1; i++ {
+		lineCopy := make([]rune, len(e.clipboard[i]))
+		copy(lineCopy, e.clipboard[i])
+		newLines[buf.CursorRow+i] = lineCopy
+	}
+
+	lastRow := buf.CursorRow + len(e.clipboard) - 1
+	newLines[lastRow] = lastPart
+	copy(newLines[buf.CursorRow+len(e.clipboard):], buf.Lines[buf.CursorRow+1:])
+
+	buf.Lines = newLines
+	buf.CursorRow += len(e.clipboard) - 1
+	buf.CursorCol = len(e.clipboard[len(e.clipboard)-1]) - 1
+	if buf.CursorCol < 0 {
+		buf.CursorCol = 0
 	}
 
 	buf.Modified = true
 	e.scheduleAutoSave()
+	return firstRow, lastRow
 }
 
 // undo reverses the last change
@@ -1397,77 +1481,89 @@ func (e *Editor) redo() {
 }
 
 // pasteBefore pastes clipboard content before cursor (P command)
-func (e *Editor) pasteBefore() {
+// Returns the range of inserted lines (firstRow, lastRow)
+func (e *Editor) pasteBefore() (int, int) {
 	if len(e.clipboard) == 0 {
-		return
+		return -1, -1
 	}
 
 	buf := e.activeBuffer()
 
 	if e.clipboardLine {
 		// Paste whole lines before current line
+		firstRow := buf.CursorRow
 		for i := len(e.clipboard) - 1; i >= 0; i-- {
 			lineCopy := make([]rune, len(e.clipboard[i]))
 			copy(lineCopy, e.clipboard[i])
 			buf.InsertLineBefore(buf.CursorRow, lineCopy)
 		}
+		lastRow := firstRow + len(e.clipboard) - 1
 		buf.CursorCol = 0
-	} else {
-		// Paste text at cursor position
-		if len(e.clipboard) == 1 {
-			// Single line paste
-			line := buf.Lines[buf.CursorRow]
-			insertPos := buf.CursorCol
-			newLine := make([]rune, len(line)+len(e.clipboard[0]))
-			copy(newLine[:insertPos], line[:insertPos])
-			copy(newLine[insertPos:], e.clipboard[0])
-			copy(newLine[insertPos+len(e.clipboard[0]):], line[insertPos:])
-			buf.Lines[buf.CursorRow] = newLine
-			buf.CursorCol = insertPos + len(e.clipboard[0]) - 1
-			if buf.CursorCol < 0 {
-				buf.CursorCol = 0
-			}
-		} else {
-			// Multi-line paste
-			line := buf.Lines[buf.CursorRow]
-			insertPos := buf.CursorCol
+		buf.Modified = true
+		e.scheduleAutoSave()
+		return firstRow, lastRow
+	}
 
-			// First part of current line + first clipboard line
-			firstPart := make([]rune, insertPos+len(e.clipboard[0]))
-			copy(firstPart[:insertPos], line[:insertPos])
-			copy(firstPart[insertPos:], e.clipboard[0])
-
-			// Last clipboard line + rest of current line
-			lastPart := make([]rune, len(e.clipboard[len(e.clipboard)-1])+len(line)-insertPos)
-			copy(lastPart, e.clipboard[len(e.clipboard)-1])
-			copy(lastPart[len(e.clipboard[len(e.clipboard)-1]):], line[insertPos:])
-
-			// Build new lines
-			newLines := make([][]rune, len(buf.Lines)+len(e.clipboard)-1)
-			copy(newLines[:buf.CursorRow], buf.Lines[:buf.CursorRow])
-			newLines[buf.CursorRow] = firstPart
-
-			// Middle clipboard lines
-			for i := 1; i < len(e.clipboard)-1; i++ {
-				lineCopy := make([]rune, len(e.clipboard[i]))
-				copy(lineCopy, e.clipboard[i])
-				newLines[buf.CursorRow+i] = lineCopy
-			}
-
-			newLines[buf.CursorRow+len(e.clipboard)-1] = lastPart
-			copy(newLines[buf.CursorRow+len(e.clipboard):], buf.Lines[buf.CursorRow+1:])
-
-			buf.Lines = newLines
-			buf.CursorRow += len(e.clipboard) - 1
-			buf.CursorCol = len(e.clipboard[len(e.clipboard)-1]) - 1
-			if buf.CursorCol < 0 {
-				buf.CursorCol = 0
-			}
+	// Paste text at cursor position
+	if len(e.clipboard) == 1 {
+		// Single line paste - inline, no reindent needed
+		line := buf.Lines[buf.CursorRow]
+		insertPos := buf.CursorCol
+		newLine := make([]rune, len(line)+len(e.clipboard[0]))
+		copy(newLine[:insertPos], line[:insertPos])
+		copy(newLine[insertPos:], e.clipboard[0])
+		copy(newLine[insertPos+len(e.clipboard[0]):], line[insertPos:])
+		buf.Lines[buf.CursorRow] = newLine
+		buf.CursorCol = insertPos + len(e.clipboard[0]) - 1
+		if buf.CursorCol < 0 {
+			buf.CursorCol = 0
 		}
+		buf.Modified = true
+		e.scheduleAutoSave()
+		return -1, -1
+	}
+
+	// Multi-line paste
+	line := buf.Lines[buf.CursorRow]
+	insertPos := buf.CursorCol
+	firstRow := buf.CursorRow + 1
+
+	// First part of current line + first clipboard line
+	firstPart := make([]rune, insertPos+len(e.clipboard[0]))
+	copy(firstPart[:insertPos], line[:insertPos])
+	copy(firstPart[insertPos:], e.clipboard[0])
+
+	// Last clipboard line + rest of current line
+	lastPart := make([]rune, len(e.clipboard[len(e.clipboard)-1])+len(line)-insertPos)
+	copy(lastPart, e.clipboard[len(e.clipboard)-1])
+	copy(lastPart[len(e.clipboard[len(e.clipboard)-1]):], line[insertPos:])
+
+	// Build new lines
+	newLines := make([][]rune, len(buf.Lines)+len(e.clipboard)-1)
+	copy(newLines[:buf.CursorRow], buf.Lines[:buf.CursorRow])
+	newLines[buf.CursorRow] = firstPart
+
+	// Middle clipboard lines
+	for i := 1; i < len(e.clipboard)-1; i++ {
+		lineCopy := make([]rune, len(e.clipboard[i]))
+		copy(lineCopy, e.clipboard[i])
+		newLines[buf.CursorRow+i] = lineCopy
+	}
+
+	lastRow := buf.CursorRow + len(e.clipboard) - 1
+	newLines[lastRow] = lastPart
+	copy(newLines[buf.CursorRow+len(e.clipboard):], buf.Lines[buf.CursorRow+1:])
+
+	buf.Lines = newLines
+	buf.CursorRow += len(e.clipboard) - 1
+	buf.CursorCol = len(e.clipboard[len(e.clipboard)-1]) - 1
+	if buf.CursorCol < 0 {
+		buf.CursorCol = 0
 	}
 
 	buf.Modified = true
 	e.scheduleAutoSave()
+	return firstRow, lastRow
 }
 
 // handlePendingOperator handles the second key after an operator (d, y)
@@ -1794,11 +1890,13 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 				pane.ClearSelection()
 				e.mode = ModeNormal
 				// Now paste at cursor
+				var fr, lr int
 				if ev.Rune() == 'p' {
-					e.pasteAfter()
+					fr, lr = e.pasteAfter()
 				} else {
-					e.pasteBefore()
+					fr, lr = e.pasteBefore()
 				}
+				e.reindentPastedRange(buf, fr, lr)
 				pane.SyncFromBuffer()
 
 				// Record the combined delete+paste operation for undo
