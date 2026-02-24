@@ -523,6 +523,9 @@ func (e *Editor) executeMapping(expansion string) {
 	pane := e.activePane()
 	buf := pane.Buffer
 
+	// Dismiss autocomplete popup when a mapping is triggered
+	e.inputState.Autocomplete = nil
+
 	// Sync pane cursor to buffer before any operations
 	pane.SyncToBuffer()
 
