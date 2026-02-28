@@ -182,17 +182,15 @@ func calculatePaneLayoutVertical(numPanes, width, height, contentStartY int) []P
 
 // renderHorizontalSeparator draws a horizontal line between panes
 func (s *Screen) renderHorizontalSeparator(y, width int) {
-	separatorStyle := tcell.StyleDefault.Foreground(tcell.ColorGray)
 	for x := 0; x < width; x++ {
-		s.screen.SetContent(x, y, '─', nil, separatorStyle)
+		s.screen.SetContent(x, y, '─', nil, SeparatorStyle)
 	}
 }
 
 // renderVerticalSeparator draws a vertical line between panes
 func (s *Screen) renderVerticalSeparator(x, startY, height int) {
-	separatorStyle := tcell.StyleDefault.Foreground(tcell.ColorGray)
 	for y := startY; y < startY+height; y++ {
-		s.screen.SetContent(x, y, '│', nil, separatorStyle)
+		s.screen.SetContent(x, y, '│', nil, SeparatorStyle)
 	}
 }
 
@@ -296,7 +294,7 @@ func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState 
 
 // renderSearchBar renders the search input bar at the top of the screen
 func (s *Screen) renderSearchBar(search *SearchState, width int) {
-	style := tcell.StyleDefault.Background(tcell.ColorDarkBlue).Foreground(tcell.ColorWhite)
+	style := SearchBarStyle
 
 	// Clear the row
 	for x := 0; x < width; x++ {
@@ -329,7 +327,7 @@ func (s *Screen) renderSearchBar(search *SearchState, width int) {
 	// Show "No matches" feedback if query has no results
 	if search.NoMatches && search.Query != "" {
 		feedback := " (No matches)"
-		feedbackStyle := style.Foreground(tcell.ColorRed)
+		feedbackStyle := SearchBarNoMatchStyle
 		for _, ch := range feedback {
 			if x < width {
 				s.screen.SetContent(x, 0, ch, nil, feedbackStyle)
@@ -361,158 +359,16 @@ func lineNumberWidth(totalLines int) int {
 	return width + 1 // +1 for space after number
 }
 
-// renderPane draws a buffer in a specific area of the screen with line wrapping
-func (s *Screen) renderPane(buf *Buffer, startX, startY, width, height int, mode Mode) {
-	lineNumWidth := lineNumberWidth(len(buf.Lines))
-	lineNumStyle := tcell.StyleDefault.Foreground(tcell.ColorGreen)
-	wrapStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
-	selectionStyle := tcell.StyleDefault.Reverse(true)
-
-	// Mode-specific style for current line number only
-	var currentLineNumStyle tcell.Style
-	switch mode {
-	case ModeNormal:
-		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorBlue).Foreground(tcell.ColorWhite).Bold(true)
-	case ModeInsert:
-		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack).Bold(true)
-	case ModeVisual:
-		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorPurple).Foreground(tcell.ColorWhite).Bold(true)
-	}
-
-	textWidth := width - lineNumWidth
-	if textWidth < 1 {
-		textWidth = 1
-	}
-
-	screenRow := 0
-	for lineIdx := buf.ScrollOffset; lineIdx < len(buf.Lines) && screenRow < height; lineIdx++ {
-		line := buf.Lines[lineIdx]
-		isCurrentLine := lineIdx == buf.CursorRow
-
-		// Calculate relative line number
-		var lineNum int
-		var lineNumStyleToUse tcell.Style
-		if isCurrentLine {
-			lineNum = lineIdx + 1 // Absolute line number for current line
-			lineNumStyleToUse = currentLineNumStyle
-		} else {
-			lineNum = lineIdx - buf.CursorRow
-			if lineNum < 0 {
-				lineNum = -lineNum
-			}
-			lineNumStyleToUse = lineNumStyle
-		}
-
-		// Handle empty lines
-		if len(line) == 0 {
-			// Draw line number
-			numStr := fmt.Sprintf("%*d ", lineNumWidth-1, lineNum)
-			for i, ch := range numStr {
-				if startX+i < startX+width {
-					s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lineNumStyleToUse)
-				}
-			}
-			screenRow++
-			continue
-		}
-
-		// Draw line with wrapping
-		charIdx := 0
-		isFirstWrap := true
-		for charIdx < len(line) && screenRow < height {
-			// Draw line number or wrap indicator
-			if isFirstWrap {
-				numStr := fmt.Sprintf("%*d ", lineNumWidth-1, lineNum)
-				for i, ch := range numStr {
-					if startX+i < startX+width {
-						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lineNumStyleToUse)
-					}
-				}
-				isFirstWrap = false
-			} else {
-				// Draw wrap continuation indicator
-				wrapIndicator := fmt.Sprintf("%*s ", lineNumWidth-1, "↪")
-				wrapStyleToUse := wrapStyle
-				if isCurrentLine {
-					wrapStyleToUse = currentLineNumStyle
-				}
-				for i, ch := range wrapIndicator {
-					if startX+i < startX+width {
-						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, wrapStyleToUse)
-					}
-				}
-			}
-
-			// Get syntax highlighting tokens for this line (if available)
-			var tokens []Token
-			if buf.HighlightCache != nil {
-				tokens = buf.HighlightCache.GetTokens(lineIdx, line, buf.Lines)
-			}
-
-			// Get tab stop width from buffer config
-			tabStop := buf.Config.TabStop
-			if tabStop <= 0 {
-				tabStop = 4
-			}
-
-			// Draw text for this screen row
-			// col = visual column on screen, charIdx = index into line runes
-			textStart := startX + lineNumWidth
-			col := 0
-			for col < textWidth && charIdx < len(line) {
-				ch := line[charIdx]
-				charStyle := tcell.StyleDefault
-
-				// Apply syntax highlighting
-				if len(tokens) > 0 {
-					if style, ok := GetStyleAt(tokens, charIdx); ok {
-						charStyle = style
-					}
-				}
-
-				// Selection takes precedence over syntax highlighting
-				if buf.IsInSelection(lineIdx, charIdx) {
-					charStyle = selectionStyle
-				}
-
-				if ch == '\t' {
-					// Expand tab to spaces up to next tab stop
-					spacesToNextStop := tabStop - (col % tabStop)
-					for i := 0; i < spacesToNextStop && col < textWidth; i++ {
-						s.screen.SetContent(textStart+col, startY+screenRow, ' ', nil, charStyle)
-						col++
-					}
-				} else {
-					s.screen.SetContent(textStart+col, startY+screenRow, ch, nil, charStyle)
-					col++
-				}
-				charIdx++
-			}
-			screenRow++
-		}
-	}
-}
-
 // renderPaneWithSearch draws a pane with optional search match highlighting
 func (s *Screen) renderPaneWithSearch(pane *Pane, startX, startY, width, height int, mode Mode, search *SearchState) {
 	buf := pane.Buffer
 	lineNumWidth := lineNumberWidth(len(buf.Lines))
-	lineNumStyle := tcell.StyleDefault.Foreground(tcell.ColorGreen)
-	wrapStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
-	selectionStyle := tcell.StyleDefault.Reverse(true)
-	searchMatchStyle := tcell.StyleDefault.Background(tcell.ColorYellow).Foreground(tcell.ColorBlack)
-	currentMatchStyle := tcell.StyleDefault.Background(tcell.ColorOrange).Foreground(tcell.ColorBlack).Bold(true)
-
-	// Mode-specific style for current line number only
-	var currentLineNumStyle tcell.Style
-	switch mode {
-	case ModeNormal:
-		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorBlue).Foreground(tcell.ColorWhite).Bold(true)
-	case ModeInsert:
-		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack).Bold(true)
-	case ModeVisual:
-		currentLineNumStyle = tcell.StyleDefault.Background(tcell.ColorPurple).Foreground(tcell.ColorWhite).Bold(true)
-	}
+	lineNumStyle := LineNumStyle
+	wrapStyle := WrapIndicStyle
+	selectionStyle := SelectionStyle
+	searchMatchStyle := SearchMatchStyle
+	currentMatchStyle := CurrentMatchStyle
+	currentLineNumStyle := CurrentLineNumStyle(mode)
 
 	textWidth := width - lineNumWidth
 	if textWidth < 1 {
@@ -587,7 +443,7 @@ func (s *Screen) renderPaneWithSearch(pane *Pane, startX, startY, width, height 
 			// Get tab stop width from buffer config
 			tabStop := buf.Config.TabStop
 			if tabStop <= 0 {
-				tabStop = 4
+				tabStop = DefaultTabStop
 			}
 
 			// Draw text for this screen row
@@ -664,7 +520,7 @@ func getLineNumberWidthFromPane(pane *Pane) int {
 // getVisualColumn calculates the visual column position accounting for tab expansion
 func getVisualColumn(line []rune, charCol int, tabStop int) int {
 	if tabStop <= 0 {
-		tabStop = 4
+		tabStop = DefaultTabStop
 	}
 	visualCol := 0
 	for i := 0; i < charCol && i < len(line); i++ {
@@ -683,39 +539,37 @@ func getVisualLineWidth(line []rune, tabStop int) int {
 	return getVisualColumn(line, len(line), tabStop)
 }
 
-// getCursorScreenPos calculates the screen position of the cursor with line wrapping
-func getCursorScreenPos(buf *Buffer, paneWidth, lineNumWidth int) (screenX, screenY int) {
+// calcCursorScreenPos calculates the screen position of the cursor with line wrapping.
+// lines is the buffer content, cursorRow/cursorCol/scrollOffset are the navigation state,
+// paneWidth is the total pane width, lineNumWidth is the gutter width, tabStop is the tab size.
+func calcCursorScreenPos(lines [][]rune, cursorRow, cursorCol, scrollOffset, paneWidth, lineNumWidth, tabStop int) (screenX, screenY int) {
 	textWidth := paneWidth - lineNumWidth
 	if textWidth < 1 {
 		textWidth = 1
 	}
-
-	tabStop := buf.Config.TabStop
 	if tabStop <= 0 {
-		tabStop = 4
+		tabStop = DefaultTabStop
 	}
 
 	screenY = 0
 
-	// Count screen rows used by lines from ScrollOffset to cursor
-	for lineIdx := buf.ScrollOffset; lineIdx < buf.CursorRow && lineIdx < len(buf.Lines); lineIdx++ {
-		line := buf.Lines[lineIdx]
+	// Count screen rows used by lines from scrollOffset to cursor
+	for lineIdx := scrollOffset; lineIdx < cursorRow && lineIdx < len(lines); lineIdx++ {
+		line := lines[lineIdx]
 		if len(line) == 0 {
 			screenY++
 		} else {
 			visualWidth := getVisualLineWidth(line, tabStop)
-			screenY += (visualWidth + textWidth - 1) / textWidth // Ceiling division
+			screenY += (visualWidth + textWidth - 1) / textWidth
 		}
 	}
 
 	// Calculate position within the cursor's line
-	cursorLine := buf.Lines[buf.CursorRow]
-	if len(cursorLine) == 0 || buf.CursorCol == 0 {
+	cursorLine := lines[cursorRow]
+	if len(cursorLine) == 0 || cursorCol == 0 {
 		screenX = lineNumWidth
 	} else {
-		// Calculate visual column accounting for tabs
-		visualCol := getVisualColumn(cursorLine, buf.CursorCol, tabStop)
-		// Which wrapped row is the cursor on?
+		visualCol := getVisualColumn(cursorLine, cursorCol, tabStop)
 		wrapRow := visualCol / textWidth
 		screenY += wrapRow
 		screenX = lineNumWidth + (visualCol % textWidth)
@@ -726,44 +580,12 @@ func getCursorScreenPos(buf *Buffer, paneWidth, lineNumWidth int) (screenX, scre
 
 // getCursorScreenPosFromPane calculates the screen position of the cursor for a pane
 func getCursorScreenPosFromPane(pane *Pane, paneWidth, lineNumWidth int) (screenX, screenY int) {
-	buf := pane.Buffer
-	textWidth := paneWidth - lineNumWidth
-	if textWidth < 1 {
-		textWidth = 1
-	}
-
-	tabStop := buf.Config.TabStop
-	if tabStop <= 0 {
-		tabStop = 4
-	}
-
-	screenY = 0
-
-	// Count screen rows used by lines from ScrollOffset to cursor
-	for lineIdx := pane.ScrollOffset; lineIdx < pane.CursorRow && lineIdx < len(buf.Lines); lineIdx++ {
-		line := buf.Lines[lineIdx]
-		if len(line) == 0 {
-			screenY++
-		} else {
-			visualWidth := getVisualLineWidth(line, tabStop)
-			screenY += (visualWidth + textWidth - 1) / textWidth // Ceiling division
-		}
-	}
-
-	// Calculate position within the cursor's line
-	cursorLine := buf.Lines[pane.CursorRow]
-	if len(cursorLine) == 0 || pane.CursorCol == 0 {
-		screenX = lineNumWidth
-	} else {
-		// Calculate visual column accounting for tabs
-		visualCol := getVisualColumn(cursorLine, pane.CursorCol, tabStop)
-		// Which wrapped row is the cursor on?
-		wrapRow := visualCol / textWidth
-		screenY += wrapRow
-		screenX = lineNumWidth + (visualCol % textWidth)
-	}
-
-	return screenX, screenY
+	return calcCursorScreenPos(
+		pane.Buffer.Lines,
+		pane.CursorRow, pane.CursorCol, pane.ScrollOffset,
+		paneWidth, lineNumWidth,
+		pane.Buffer.Config.TabStop,
+	)
 }
 
 // renderAutocomplete draws the autocomplete dropdown overlay
@@ -816,9 +638,8 @@ func (s *Screen) renderAutocomplete(ac *AutocompleteState, cursorX, cursorY, scr
 	// Update state for rendering position
 	ac.ShowAbove = showAbove
 
-	// Styles: white on black for selected, black on purple for unselected
-	unselectedStyle := tcell.StyleDefault.Background(tcell.ColorPurple).Foreground(tcell.ColorBlack)
-	selectedStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorWhite).Bold(true)
+	unselectedStyle := AutocompleteNormalStyle
+	selectedStyle := AutocompleteSelectedStyle
 
 	// Draw dropdown
 	displayCount := dropdownHeight

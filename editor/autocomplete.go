@@ -20,6 +20,10 @@ type AutocompleteState struct {
 	Suggestions []Suggestion // Matching words, sorted by relevance
 	SelectedIdx int          // Currently highlighted suggestion (0-based)
 	ShowAbove   bool         // True if dropdown appears above cursor
+
+	// Word cache: avoids re-scanning the entire buffer on every keystroke
+	cachedWords    []string // Cached word list from ExtractWords
+	cachedModCount uint64   // Buffer ModCount when cache was built
 }
 
 // Tokenizer delimiters for word extraction
@@ -189,4 +193,14 @@ func (a *AutocompleteState) UpdateSuggestions(prefix string, suggestions []Sugge
 	a.Prefix = prefix
 	a.Suggestions = suggestions
 	a.SelectedIdx = 0
+}
+
+// GetWords returns the cached word list, rebuilding it only when the buffer has changed.
+func (a *AutocompleteState) GetWords(lines [][]rune, modCount uint64, excludeRow, excludeCol int) []string {
+	if a.cachedWords != nil && a.cachedModCount == modCount {
+		return a.cachedWords
+	}
+	a.cachedWords = ExtractWords(lines, excludeRow, excludeCol)
+	a.cachedModCount = modCount
+	return a.cachedWords
 }

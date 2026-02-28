@@ -27,23 +27,6 @@ func NewPane(buf *Buffer) *Pane {
 	}
 }
 
-// SyncToBuffer copies cursor position from pane to buffer (call before buffer operations)
-func (p *Pane) SyncToBuffer() {
-	p.Buffer.CursorRow = p.CursorRow
-	p.Buffer.CursorCol = p.CursorCol
-	p.Buffer.ScrollOffset = p.ScrollOffset
-	p.Buffer.SelectionActive = p.SelectionActive
-	p.Buffer.SelectionStartRow = p.SelectionStartRow
-	p.Buffer.SelectionStartCol = p.SelectionStartCol
-}
-
-// SyncFromBuffer copies cursor position from buffer to pane (call after buffer operations)
-func (p *Pane) SyncFromBuffer() {
-	p.CursorRow = p.Buffer.CursorRow
-	p.CursorCol = p.Buffer.CursorCol
-	p.ScrollOffset = p.Buffer.ScrollOffset
-}
-
 // NewPaneAtLine creates a new pane viewing the given buffer, positioned at a specific line
 func NewPaneAtLine(buf *Buffer, line int) *Pane {
 	p := NewPane(buf)
@@ -140,7 +123,7 @@ func (p *Pane) AdjustScroll(textWidth, screenHeight int) {
 	}
 
 	// Scroll margin - lines to keep visible above/below cursor
-	const scrollMargin = 5
+	const scrollMargin = ScrollMargin
 
 	// Adjust margin if screen is too small
 	margin := scrollMargin

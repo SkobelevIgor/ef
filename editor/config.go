@@ -2,10 +2,10 @@ package editor
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gdamore/tcell/v2"
 )
@@ -40,9 +40,6 @@ type FileTypeConfig struct {
 	SyntaxRules        []SyntaxRuleConfig `json:"syntax_rules,omitempty"`
 }
 
-// MappingTimeout is the timeout for multi-character key mappings
-const MappingTimeout = 500 * time.Millisecond
-
 // LoadConfig loads configuration from ~/.efconfig
 // Returns empty config if file doesn't exist
 func LoadConfig() *Config {
@@ -59,6 +56,7 @@ func LoadConfig() *Config {
 
 	config := DefaultConfig()
 	if err := json.Unmarshal(data, config); err != nil {
+		fmt.Fprintf(os.Stderr, "ef: warning: failed to parse %s: %v (using defaults)\n", configPath, err)
 		return DefaultConfig()
 	}
 

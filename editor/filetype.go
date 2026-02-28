@@ -53,7 +53,7 @@ func (r *FileTypeRegistry) registerFileTypeFromConfig(ftName string, ftConfig Fi
 	// Create formatter
 	tabStop := ftConfig.TabStop
 	if tabStop <= 0 {
-		tabStop = 4
+		tabStop = DefaultTabStop
 	}
 	info.Formatter = NewBaseFormatter(tabStop, ftConfig.ExpandTab)
 

@@ -7,20 +7,13 @@ import (
 	"time"
 )
 
-// Buffer represents the text content being edited
+// Buffer represents the text content being edited.
+// Buffer is a pure text container — cursor, scroll, and selection state live in Pane.
 type Buffer struct {
-	Lines        [][]rune
-	CursorRow    int
-	CursorCol    int
-	ScrollOffset int // First line displayed at top of screen
-	Filename     string
-	Modified     bool
-	LastModTime  time.Time // Last known modification time of the file
-
-	// Selection support for Visual mode
-	SelectionActive   bool
-	SelectionStartRow int
-	SelectionStartCol int
+	Lines       [][]rune
+	Filename    string
+	Modified    bool
+	LastModTime time.Time // Last known modification time of the file
 
 	// Syntax highlighting support
 	FileType       string
@@ -28,6 +21,9 @@ type Buffer struct {
 
 	// Filetype configuration
 	Config FileTypeConfig
+
+	// ModCount is incremented on every buffer mutation, used for cache invalidation
+	ModCount uint64
 }
 
 // NewBuffer creates a new buffer and loads the file if it exists
@@ -37,8 +33,8 @@ func NewBuffer(filename string) (*Buffer, error) {
 		Lines:    [][]rune{{}},
 		FileType: "", // Will be detected by registry
 		Config: FileTypeConfig{
-			TabStop:         4,
-			ShiftWidth:      4,
+			TabStop:         DefaultTabStop,
+			ShiftWidth:      DefaultTabStop,
 			AutoIndentation: false,
 			ExpandTab:       false,
 		},
@@ -137,119 +133,101 @@ func (b *Buffer) Save() error {
 	return nil
 }
 
-// InsertChar inserts a character at the cursor position
-func (b *Buffer) InsertChar(ch rune) {
-	line := b.Lines[b.CursorRow]
-	newLine := make([]rune, len(line)+1)
-	copy(newLine[:b.CursorCol], line[:b.CursorCol])
-	newLine[b.CursorCol] = ch
-	copy(newLine[b.CursorCol+1:], line[b.CursorCol:])
-	b.Lines[b.CursorRow] = newLine
-	b.CursorCol++
+// InsertChar inserts a character at the given position, returns new col
+func (b *Buffer) InsertChar(row, col int, ch rune) int {
+	b.Lines[row] = insertRunes(b.Lines[row], col, []rune{ch})
 	b.Modified = true
+	b.ModCount++
+	return col + 1
 }
 
-// DeleteChar deletes the character before the cursor (backspace)
-func (b *Buffer) DeleteChar() {
-	if b.CursorCol > 0 {
-		line := b.Lines[b.CursorRow]
-		newLine := make([]rune, len(line)-1)
-		copy(newLine[:b.CursorCol-1], line[:b.CursorCol-1])
-		copy(newLine[b.CursorCol-1:], line[b.CursorCol:])
-		b.Lines[b.CursorRow] = newLine
-		b.CursorCol--
+// DeleteChar deletes the character before the given position (backspace), returns new row, col
+func (b *Buffer) DeleteChar(row, col int) (int, int) {
+	if col > 0 {
+		b.Lines[row] = removeRunes(b.Lines[row], col-1, col)
 		b.Modified = true
-	} else if b.CursorRow > 0 {
+		b.ModCount++
+		return row, col - 1
+	} else if row > 0 {
 		// Join with previous line
-		prevLine := b.Lines[b.CursorRow-1]
-		currLine := b.Lines[b.CursorRow]
-		b.CursorCol = len(prevLine)
-		b.Lines[b.CursorRow-1] = append(prevLine, currLine...)
-		b.Lines = append(b.Lines[:b.CursorRow], b.Lines[b.CursorRow+1:]...)
-		b.CursorRow--
+		prevLine := b.Lines[row-1]
+		currLine := b.Lines[row]
+		newCol := len(prevLine)
+		b.Lines[row-1] = append(prevLine, currLine...)
+		b.Lines = append(b.Lines[:row], b.Lines[row+1:]...)
 		b.Modified = true
+		b.ModCount++
+		return row - 1, newCol
 	}
+	return row, col
 }
 
-// DeleteCharForward deletes the character at the cursor (delete key)
-func (b *Buffer) DeleteCharForward() {
-	line := b.Lines[b.CursorRow]
-	if b.CursorCol < len(line) {
-		newLine := make([]rune, len(line)-1)
-		copy(newLine[:b.CursorCol], line[:b.CursorCol])
-		copy(newLine[b.CursorCol:], line[b.CursorCol+1:])
-		b.Lines[b.CursorRow] = newLine
+// DeleteCharForward deletes the character at the given position (delete key)
+func (b *Buffer) DeleteCharForward(row, col int) {
+	line := b.Lines[row]
+	if col < len(line) {
+		b.Lines[row] = removeRunes(line, col, col+1)
 		b.Modified = true
-	} else if b.CursorRow < len(b.Lines)-1 {
+		b.ModCount++
+	} else if row < len(b.Lines)-1 {
 		// Join with next line
-		nextLine := b.Lines[b.CursorRow+1]
-		b.Lines[b.CursorRow] = append(line, nextLine...)
-		b.Lines = append(b.Lines[:b.CursorRow+1], b.Lines[b.CursorRow+2:]...)
+		nextLine := b.Lines[row+1]
+		b.Lines[row] = append(line, nextLine...)
+		b.Lines = append(b.Lines[:row+1], b.Lines[row+2:]...)
 		b.Modified = true
+		b.ModCount++
 	}
 }
 
-// InsertNewline splits the current line at the cursor position
-func (b *Buffer) InsertNewline() {
-	line := b.Lines[b.CursorRow]
-	left := make([]rune, b.CursorCol)
-	copy(left, line[:b.CursorCol])
-	right := make([]rune, len(line)-b.CursorCol)
-	copy(right, line[b.CursorCol:])
+// InsertNewline splits the line at the given position, returns new row, col
+func (b *Buffer) InsertNewline(row, col int) (int, int) {
+	line := b.Lines[row]
+	left := make([]rune, col)
+	copy(left, line[:col])
+	right := make([]rune, len(line)-col)
+	copy(right, line[col:])
 
-	b.Lines[b.CursorRow] = left
+	b.Lines[row] = left
+	b.Lines = spliceLines(b.Lines, row+1, 0, [][]rune{right})
 
-	// Insert new line after current
-	newLines := make([][]rune, len(b.Lines)+1)
-	copy(newLines[:b.CursorRow+1], b.Lines[:b.CursorRow+1])
-	newLines[b.CursorRow+1] = right
-	copy(newLines[b.CursorRow+2:], b.Lines[b.CursorRow+1:])
-	b.Lines = newLines
-
-	b.CursorRow++
-	b.CursorCol = 0
 	b.Modified = true
+	b.ModCount++
+	return row + 1, 0
 }
 
-// InsertNewlineWithIndent splits the line and applies auto-indentation if enabled
-func (b *Buffer) InsertNewlineWithIndent() {
-	// Get indentation from current line before splitting
+// InsertNewlineWithIndent splits the line and applies auto-indentation, returns new row, col
+func (b *Buffer) InsertNewlineWithIndent(row, col int) (int, int) {
 	var indent []rune
 	if b.Config.AutoIndentation {
-		indent = b.getLeadingWhitespace(b.Lines[b.CursorRow])
+		indent = b.getLeadingWhitespace(b.Lines[row])
 	}
 
-	// Perform the normal newline
-	b.InsertNewline()
+	newRow, newCol := b.InsertNewline(row, col)
 
-	// Apply indentation to the new line
 	if len(indent) > 0 {
-		line := b.Lines[b.CursorRow]
+		line := b.Lines[newRow]
 		newLine := make([]rune, len(indent)+len(line))
 		copy(newLine, indent)
 		copy(newLine[len(indent):], line)
-		b.Lines[b.CursorRow] = newLine
-		b.CursorCol = len(indent)
+		b.Lines[newRow] = newLine
+		newCol = len(indent)
 	}
+	return newRow, newCol
 }
 
-// OpenLineBelow opens a new line below the current line with auto-indentation (o command)
-func (b *Buffer) OpenLineBelow() {
+// OpenLineBelow opens a new line below the given row with auto-indentation, returns new row, col
+func (b *Buffer) OpenLineBelow(row int) (int, int) {
 	var indent []rune
 	if b.Config.AutoIndentation {
-		indent = b.smartIndentForNewLine(b.CursorRow)
+		indent = b.smartIndentForNewLine(row)
 	}
 
-	// Create new line with indentation
 	newLine := make([]rune, len(indent))
 	copy(newLine, indent)
 
-	// Insert new line after current
-	b.InsertLineAfter(b.CursorRow, newLine)
+	b.InsertLineAfter(row, newLine)
 
-	// Move cursor to new line, at end of indentation
-	b.CursorRow++
-	b.CursorCol = len(indent)
+	return row + 1, len(indent)
 }
 
 // smartIndentForNewLine computes indentation for a new line opened after row.
@@ -289,43 +267,38 @@ func (b *Buffer) smartIndentForNewLine(row int) []rune {
 	return b.makeIndent(level)
 }
 
-// OpenLineAbove opens a new line above the current line with auto-indentation (O command)
-func (b *Buffer) OpenLineAbove() {
-	// Get indentation from current line
+// OpenLineAbove opens a new line above the given row with auto-indentation, returns new row, col
+func (b *Buffer) OpenLineAbove(row int) (int, int) {
 	var indent []rune
 	if b.Config.AutoIndentation {
-		indent = b.getLeadingWhitespace(b.Lines[b.CursorRow])
+		indent = b.getLeadingWhitespace(b.Lines[row])
 	}
 
-	// Create new line with indentation
 	newLine := make([]rune, len(indent))
 	copy(newLine, indent)
 
-	// Insert new line before current
-	b.InsertLineBefore(b.CursorRow, newLine)
+	b.InsertLineBefore(row, newLine)
 
-	// Cursor stays on the same row number (which is now the new line)
-	b.CursorCol = len(indent)
+	// Row stays the same (the new line is at the old row position)
+	return row, len(indent)
 }
 
-// InsertTab inserts a tab character or spaces based on ExpandTab setting
-func (b *Buffer) InsertTab() {
+// InsertTab inserts a tab character or spaces, returns new col
+func (b *Buffer) InsertTab(row, col int) int {
 	if b.Config.ExpandTab {
-		// Insert spaces instead of tab
 		tabStop := b.Config.TabStop
 		if tabStop <= 0 {
-			tabStop = 4
+			tabStop = DefaultTabStop
 		}
-		// Calculate spaces needed to reach next tab stop
-		// Use visual column (accounting for existing tabs) not character column
-		visualCol := b.GetVisualColumn(b.Lines[b.CursorRow], b.CursorCol)
+		visualCol := b.GetVisualColumn(b.Lines[row], col)
 		spacesNeeded := tabStop - (visualCol % tabStop)
 		for i := 0; i < spacesNeeded; i++ {
-			b.InsertChar(' ')
+			col = b.InsertChar(row, col, ' ')
 		}
 	} else {
-		b.InsertChar('\t')
+		col = b.InsertChar(row, col, '\t')
 	}
+	return col
 }
 
 // getLeadingWhitespace returns the leading whitespace from a line
@@ -346,14 +319,14 @@ func (b *Buffer) GetShiftWidth() int {
 	if b.Config.ShiftWidth > 0 {
 		return b.Config.ShiftWidth
 	}
-	return 4
+	return DefaultTabStop
 }
 
 // GetVisualColumn calculates the visual column position accounting for tab expansion
 func (b *Buffer) GetVisualColumn(line []rune, charCol int) int {
 	tabStop := b.Config.TabStop
 	if tabStop <= 0 {
-		tabStop = 4
+		tabStop = DefaultTabStop
 	}
 	visualCol := 0
 	for i := 0; i < charCol && i < len(line); i++ {
@@ -371,50 +344,6 @@ func (b *Buffer) GetVisualLineWidth(line []rune) int {
 	return b.GetVisualColumn(line, len(line))
 }
 
-// MoveUp moves the cursor up one line
-func (b *Buffer) MoveUp() {
-	if b.CursorRow > 0 {
-		b.CursorRow--
-		b.clampCursorCol()
-	}
-}
-
-// MoveDown moves the cursor down one line
-func (b *Buffer) MoveDown() {
-	if b.CursorRow < len(b.Lines)-1 {
-		b.CursorRow++
-		b.clampCursorCol()
-	}
-}
-
-// MoveLeft moves the cursor left one character
-func (b *Buffer) MoveLeft() {
-	if b.CursorCol > 0 {
-		b.CursorCol--
-	} else if b.CursorRow > 0 {
-		b.CursorRow--
-		b.CursorCol = len(b.Lines[b.CursorRow])
-	}
-}
-
-// MoveRight moves the cursor right one character
-func (b *Buffer) MoveRight() {
-	if b.CursorCol < len(b.Lines[b.CursorRow]) {
-		b.CursorCol++
-	} else if b.CursorRow < len(b.Lines)-1 {
-		b.CursorRow++
-		b.CursorCol = 0
-	}
-}
-
-// clampCursorCol ensures the cursor column is within the line bounds
-func (b *Buffer) clampCursorCol() {
-	lineLen := len(b.Lines[b.CursorRow])
-	if b.CursorCol > lineLen {
-		b.CursorCol = lineLen
-	}
-}
-
 // DeleteLine deletes the specified row and returns its content
 func (b *Buffer) DeleteLine(row int) []rune {
 	if row < 0 || row >= len(b.Lines) {
@@ -425,38 +354,28 @@ func (b *Buffer) DeleteLine(row int) []rune {
 	copy(deleted, b.Lines[row])
 
 	if len(b.Lines) == 1 {
-		// If only one line, just clear it
 		b.Lines[0] = []rune{}
 	} else {
 		b.Lines = append(b.Lines[:row], b.Lines[row+1:]...)
 	}
 
-	// Adjust cursor if needed
-	if b.CursorRow >= len(b.Lines) {
-		b.CursorRow = len(b.Lines) - 1
-	}
-	b.clampCursorCol()
 	b.Modified = true
+	b.ModCount++
 
 	return deleted
 }
 
-// DeleteCharAtCursor deletes the character under the cursor (x command)
-func (b *Buffer) DeleteCharAtCursor() rune {
-	line := b.Lines[b.CursorRow]
-	if b.CursorCol >= len(line) {
+// DeleteCharAt deletes the character at (row, col), returns the deleted rune
+func (b *Buffer) DeleteCharAt(row, col int) rune {
+	line := b.Lines[row]
+	if col >= len(line) {
 		return 0
 	}
 
-	deleted := line[b.CursorCol]
-	newLine := make([]rune, len(line)-1)
-	copy(newLine[:b.CursorCol], line[:b.CursorCol])
-	copy(newLine[b.CursorCol:], line[b.CursorCol+1:])
-	b.Lines[b.CursorRow] = newLine
+	deleted := line[col]
+	b.Lines[row] = removeRunes(line, col, col+1)
 	b.Modified = true
-
-	// Clamp cursor if now past end of line
-	b.clampCursorCol()
+	b.ModCount++
 
 	return deleted
 }
@@ -479,13 +398,9 @@ func (b *Buffer) InsertLineAfter(row int, line []rune) {
 	if row >= len(b.Lines) {
 		row = len(b.Lines) - 1
 	}
-
-	newLines := make([][]rune, len(b.Lines)+1)
-	copy(newLines[:row+1], b.Lines[:row+1])
-	newLines[row+1] = line
-	copy(newLines[row+2:], b.Lines[row+1:])
-	b.Lines = newLines
+	b.Lines = spliceLines(b.Lines, row+1, 0, [][]rune{line})
 	b.Modified = true
+	b.ModCount++
 }
 
 // InsertLineBefore inserts a line before the specified row
@@ -496,13 +411,9 @@ func (b *Buffer) InsertLineBefore(row int, line []rune) {
 	if row > len(b.Lines) {
 		row = len(b.Lines)
 	}
-
-	newLines := make([][]rune, len(b.Lines)+1)
-	copy(newLines[:row], b.Lines[:row])
-	newLines[row] = line
-	copy(newLines[row+1:], b.Lines[row:])
-	b.Lines = newLines
+	b.Lines = spliceLines(b.Lines, row, 0, [][]rune{line})
 	b.Modified = true
+	b.ModCount++
 }
 
 // DeleteRange deletes text from (startRow, startCol) to (endRow, endCol) exclusive
@@ -536,16 +447,10 @@ func (b *Buffer) DeleteRange(startRow, startCol, endRow, endCol int) [][]rune {
 		line := b.Lines[startRow]
 		deleted := make([]rune, endCol-startCol)
 		copy(deleted, line[startCol:endCol])
+		b.Lines[startRow] = removeRunes(line, startCol, endCol)
 
-		newLine := make([]rune, len(line)-(endCol-startCol))
-		copy(newLine[:startCol], line[:startCol])
-		copy(newLine[startCol:], line[endCol:])
-		b.Lines[startRow] = newLine
-
-		b.CursorRow = startRow
-		b.CursorCol = startCol
-		b.clampCursorCol()
 		b.Modified = true
+		b.ModCount++
 
 		return [][]rune{deleted}
 	}
@@ -553,33 +458,26 @@ func (b *Buffer) DeleteRange(startRow, startCol, endRow, endCol int) [][]rune {
 	// Multi-line deletion
 	var deleted [][]rune
 
-	// First line: from startCol to end
 	firstLine := b.Lines[startRow]
 	deleted = append(deleted, firstLine[startCol:])
 
-	// Middle lines: entire lines
 	for row := startRow + 1; row < endRow; row++ {
 		lineCopy := make([]rune, len(b.Lines[row]))
 		copy(lineCopy, b.Lines[row])
 		deleted = append(deleted, lineCopy)
 	}
 
-	// Last line: from start to endCol
 	lastLine := b.Lines[endRow]
 	deleted = append(deleted, lastLine[:endCol])
 
-	// Create the merged line
 	newLine := make([]rune, startCol+len(lastLine)-endCol)
 	copy(newLine[:startCol], firstLine[:startCol])
 	copy(newLine[startCol:], lastLine[endCol:])
 
-	// Remove lines and insert merged line
-	b.Lines = append(b.Lines[:startRow], append([][]rune{newLine}, b.Lines[endRow+1:]...)...)
+	b.Lines = spliceLines(b.Lines, startRow, endRow-startRow+1, [][]rune{newLine})
 
-	b.CursorRow = startRow
-	b.CursorCol = startCol
-	b.clampCursorCol()
 	b.Modified = true
+	b.ModCount++
 
 	return deleted
 }
@@ -682,6 +580,7 @@ func (b *Buffer) IndentRange(startRow, endRow int) {
 		b.Lines[row] = newLine
 	}
 	b.Modified = true
+	b.ModCount++
 }
 
 // UnindentRange removes leading indentation from each line in the range
@@ -718,6 +617,7 @@ func (b *Buffer) UnindentRange(startRow, endRow int) {
 		}
 	}
 	b.Modified = true
+	b.ModCount++
 }
 
 // getIndentLevel returns the indent level of a line.
@@ -763,8 +663,8 @@ func (b *Buffer) makeIndent(level int) []rune {
 	return indent
 }
 
-// isLineEmpty returns true if a line is empty or contains only whitespace
-func isLineEmpty(line []rune) bool {
+// hasContent returns true if a line contains non-whitespace characters
+func hasContent(line []rune) bool {
 	for _, ch := range line {
 		if ch != ' ' && ch != '\t' {
 			return true
@@ -788,7 +688,7 @@ func stripLeadingWhitespace(line []rune) []rune {
 func (b *Buffer) GetPrevNonEmptyLineIndent(row int) int {
 	for r := row - 1; r >= 0; r-- {
 		line := b.Lines[r]
-		if !isLineEmpty(line) {
+		if !hasContent(line) {
 			continue
 		}
 		level := b.getIndentLevel(line)
@@ -933,99 +833,7 @@ func (b *Buffer) ReindentLines(startRow, endRow, contextIndent int) {
 		}
 	}
 	b.Modified = true
-}
-
-// scrollMargin is the number of lines to keep visible above/below cursor
-const scrollMargin = 5
-
-// AdjustScroll adjusts the scroll offset to keep the cursor visible
-// with a margin from the top and bottom edges
-// textWidth is the available width for text (excluding line numbers)
-// screenHeight is the number of visible lines
-func (b *Buffer) AdjustScroll(textWidth, screenHeight int) {
-	if textWidth < 1 {
-		textWidth = 1
-	}
-
-	// Adjust margin if screen is too small
-	margin := scrollMargin
-	if screenHeight < margin*2+1 {
-		margin = (screenHeight - 1) / 2
-	}
-	if margin < 0 {
-		margin = 0
-	}
-
-	// Calculate which wrapped row the cursor is on within its line
-	// Account for tabs when calculating visual width
-	cursorWrapRow := 0
-	if b.CursorCol > 0 && textWidth > 0 {
-		visualCol := b.GetVisualColumn(b.Lines[b.CursorRow], b.CursorCol)
-		cursorWrapRow = visualCol / textWidth
-	}
-
-	// Calculate screen rows from ScrollOffset to cursor (top margin check)
-	screenRowsFromTop := 0
-	for lineIdx := b.ScrollOffset; lineIdx < b.CursorRow && lineIdx < len(b.Lines); lineIdx++ {
-		visualWidth := b.GetVisualLineWidth(b.Lines[lineIdx])
-		if visualWidth == 0 {
-			screenRowsFromTop++
-		} else {
-			screenRowsFromTop += (visualWidth + textWidth - 1) / textWidth
-		}
-	}
-	screenRowsFromTop += cursorWrapRow
-
-	// If cursor is too close to top, scroll up
-	if screenRowsFromTop < margin && b.ScrollOffset > 0 {
-		// Scroll up to maintain margin
-		for screenRowsFromTop < margin && b.ScrollOffset > 0 {
-			b.ScrollOffset--
-			visualWidth := b.GetVisualLineWidth(b.Lines[b.ScrollOffset])
-			if visualWidth == 0 {
-				screenRowsFromTop++
-			} else {
-				screenRowsFromTop += (visualWidth + textWidth - 1) / textWidth
-			}
-		}
-		// Don't return here - need to run the final safety check below
-	}
-
-	// Calculate total screen rows used including cursor position
-	screenRowsUsed := screenRowsFromTop + 1
-
-	// If cursor is too close to bottom, scroll down
-	if screenRowsUsed > screenHeight-margin {
-		// Need to scroll down - find new ScrollOffset
-		excess := screenRowsUsed - (screenHeight - margin)
-		for excess > 0 && b.ScrollOffset < b.CursorRow {
-			visualWidth := b.GetVisualLineWidth(b.Lines[b.ScrollOffset])
-			lineRows := 1
-			if visualWidth > 0 {
-				lineRows = (visualWidth + textWidth - 1) / textWidth
-			}
-			if lineRows <= excess {
-				excess -= lineRows
-				b.ScrollOffset++
-			} else {
-				break
-			}
-		}
-		// Make sure we scroll at least enough
-		if excess > 0 {
-			b.ScrollOffset++
-		}
-	}
-
-	// Ensure cursor is never above ScrollOffset
-	// Also try to maintain margin when possible
-	if b.CursorRow < b.ScrollOffset {
-		// Cursor jumped above visible area, reset scroll to show cursor with margin
-		b.ScrollOffset = b.CursorRow - margin
-		if b.ScrollOffset < 0 {
-			b.ScrollOffset = 0
-		}
-	}
+	b.ModCount++
 }
 
 // FindAllMatches finds all case-insensitive occurrences of query in the buffer

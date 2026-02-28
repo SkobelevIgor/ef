@@ -38,7 +38,7 @@ type History struct {
 // NewHistory creates a new history manager
 func NewHistory(maxSize int) *History {
 	if maxSize <= 0 {
-		maxSize = 100
+		maxSize = DefaultHistorySize
 	}
 	return &History{
 		maxSize: maxSize,

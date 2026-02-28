@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -117,7 +119,8 @@ func parseColor(s string) tcell.Color {
 func (h *BaseSyntaxHighlighter) addRule(pattern string, style tcell.Style, priority int) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return // Skip invalid patterns
+		fmt.Fprintf(os.Stderr, "ef: warning: invalid syntax pattern %q: %v\n", pattern, err)
+		return
 	}
 	h.Rules = append(h.Rules, SyntaxRule{
 		Pattern:  re,

@@ -37,8 +37,8 @@ func NewSearchState(cursorRow, cursorCol int) *SearchState {
 // Returns: query, replacement, isReplace
 // Pattern: replace::<search>::<replacement>
 func ParseQuery(input string) (query, replacement string, isReplace bool) {
-	if strings.HasPrefix(input, "replace::") {
-		rest := input[9:] // Skip "replace::"
+	if strings.HasPrefix(input, ReplaceSyntaxPrefix) {
+		rest := input[len(ReplaceSyntaxPrefix):]
 		parts := strings.SplitN(rest, "::", 2)
 		if len(parts) == 2 {
 			return parts[0], parts[1], true
