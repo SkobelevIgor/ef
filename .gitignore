@@ -10,4 +10,4 @@ main
 # Test files
 test*.txt
 
-./ignore/*
+ignore
