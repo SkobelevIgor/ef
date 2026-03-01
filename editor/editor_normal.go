@@ -213,8 +213,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		if len(e.clipboard) > 0 {
 			oldLines := copyLines(buf.Lines)
 			cursorRow, cursorCol := pane.CursorRow, pane.CursorCol
-			firstRow, lastRow := e.pasteAfter()
-			e.reindentPastedRange(buf, firstRow, lastRow)
+			e.pasteAfter()
 			e.history.Push(&Change{
 				Type:    ChangeReplace,
 				Buffer:  buf,
@@ -230,8 +229,7 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 		if len(e.clipboard) > 0 {
 			oldLines := copyLines(buf.Lines)
 			cursorRow, cursorCol := pane.CursorRow, pane.CursorCol
-			firstRow, lastRow := e.pasteBefore()
-			e.reindentPastedRange(buf, firstRow, lastRow)
+			e.pasteBefore()
 			e.history.Push(&Change{
 				Type:    ChangeReplace,
 				Buffer:  buf,

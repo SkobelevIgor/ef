@@ -119,6 +119,9 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 			e.clipboard = buf.DeleteRange(startRow, startCol, endRow, endCol+1)
 			e.clipboardLine = false
 			e.history.RecordDelete(buf, startRow, startCol, e.clipboard)
+			pane.CursorRow = startRow
+			pane.CursorCol = startCol
+			pane.clampCursor()
 			e.mode = ModeNormal
 			pane.ClearSelection()
 			e.inputState.Reset()
@@ -153,13 +156,11 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 				pane.ClearSelection()
 				e.mode = ModeNormal
 				// Now paste at cursor
-				var fr, lr int
 				if ev.Rune() == 'p' {
-					fr, lr = e.pasteAfter()
+					e.pasteAfter()
 				} else {
-					fr, lr = e.pasteBefore()
+					e.pasteBefore()
 				}
-				e.reindentPastedRange(buf, fr, lr)
 
 				// Record the combined delete+paste operation for undo
 				e.history.Push(&Change{

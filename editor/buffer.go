@@ -219,7 +219,7 @@ func (b *Buffer) InsertNewlineWithIndent(row, col int) (int, int) {
 func (b *Buffer) OpenLineBelow(row int) (int, int) {
 	var indent []rune
 	if b.Config.AutoIndentation {
-		indent = b.smartIndentForNewLine(row)
+		indent = b.getLeadingWhitespace(b.Lines[row])
 	}
 
 	newLine := make([]rune, len(indent))

@@ -6,21 +6,13 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// startInsertSession records the cursor position when entering insert mode
-func (e *Editor) startInsertSession() {
-	pane := e.activePane()
-	e.insertStartRow = pane.CursorRow
-	e.insertStartCol = pane.CursorCol
-}
-
 // enterInsertMode performs the common sequence for entering insert mode:
-// SyncToBuffer, start history session, set mode, record session start.
+// SyncToBuffer, start history session, set mode.
 func (e *Editor) enterInsertMode() {
 	pane := e.activePane()
 	buf := pane.Buffer
 	e.history.StartSession(buf, pane.CursorRow, pane.CursorCol, buf.Lines)
 	e.mode = ModeInsert
-	e.startInsertSession()
 }
 
 // deleteCharUnderCursorCmd executes the 'x' command: delete char at cursor as a single undo unit.
@@ -32,16 +24,6 @@ func (e *Editor) deleteCharUnderCursorCmd() {
 	pane.clampCursorCol()
 	e.history.CommitSession(buf.Lines)
 	e.scheduleAutoSave()
-}
-
-// ReindentEvent is a custom tcell event for debounced reindentation
-type ReindentEvent struct {
-	when time.Time
-}
-
-// When returns the time when the event was created
-func (e *ReindentEvent) When() time.Time {
-	return e.when
 }
 
 // EventMappingTimeout is a custom tcell event posted after MappingTimeout elapses.
@@ -91,7 +73,6 @@ func (e *Editor) handleInsertMode(ev *tcell.EventKey) bool {
 
 	switch ev.Key() {
 	case tcell.KeyEscape:
-		e.endInsertSession()
 		e.inputState.Autocomplete = nil
 		e.mode = ModeNormal
 		e.history.CommitSession(buf.Lines)

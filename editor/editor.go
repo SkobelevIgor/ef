@@ -58,9 +58,6 @@ type Editor struct {
 	// Global marks registry (cross-file navigation)
 	globalMarks map[rune]GlobalMark
 
-	// Insert session tracking for reindent on exit
-	insertStartRow int
-	insertStartCol int
 }
 
 // activePane returns the currently active pane
@@ -214,10 +211,6 @@ func (e *Editor) Run() error {
 			e.screen.screen.Sync()
 		case *FileChangedEvent:
 			e.handleExternalFileChange(ev.Filename)
-		case *ReindentEvent:
-			if e.mode == ModeInsert {
-				e.reindentInsertSession()
-			}
 		case *EventMappingTimeout:
 			if ev.snapshot.Equal(e.mapKeyTime) && e.pendingMapKeys != "" {
 				e.flushPendingMapKeys()
@@ -233,7 +226,6 @@ func (e *Editor) scheduleAutoSave() {
 	}
 	e.autoSaveTimer = time.AfterFunc(autoSaveDelay, func() {
 		e.saveAllModified()
-		e.screen.PostEvent(&ReindentEvent{when: time.Now()})
 	})
 }
 
@@ -392,9 +384,6 @@ func (e *Editor) handleKey(ev *tcell.EventKey) bool {
 	// Global keys that work in all modes
 	// Note: Escape+F10 through pty may arrive as Alt+F10, handle both
 	if ev.Key() == tcell.KeyF10 || ev.Name() == "Alt+F10" {
-		if e.mode == ModeInsert {
-			e.endInsertSession()
-		}
 		e.saveAllModified()
 		return true // quit
 	}
