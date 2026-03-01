@@ -1,5 +1,0 @@
-package ignore
-
-func main(){
-
-}
