@@ -382,7 +382,12 @@ func (e *Editor) handleGotoLineInput(ev *tcell.EventKey) bool {
 	case tcell.KeyEscape:
 		e.inputState.Reset()
 	case tcell.KeyEnter:
-		if e.inputState.GotoLineBuffer != "" {
+		buf := pane.Buffer
+		if e.inputState.GotoLineBuffer == "0" {
+			pane.GotoLine(1)
+		} else if e.inputState.GotoLineBuffer == "$" {
+			pane.GotoLine(len(buf.Lines))
+		} else if e.inputState.GotoLineBuffer != "" {
 			lineNum := 0
 			for _, ch := range e.inputState.GotoLineBuffer {
 				if ch >= '0' && ch <= '9' {
@@ -400,7 +405,7 @@ func (e *Editor) handleGotoLineInput(ev *tcell.EventKey) bool {
 		}
 	case tcell.KeyRune:
 		ch := ev.Rune()
-		if ch >= '0' && ch <= '9' {
+		if ch >= '0' && ch <= '9' || ch == '$' {
 			e.inputState.GotoLineBuffer += string(ch)
 		}
 	}

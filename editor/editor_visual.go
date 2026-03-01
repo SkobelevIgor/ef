@@ -8,6 +8,11 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 	buf := pane.Buffer
 	_, height := e.screen.Size()
 
+	// Handle pending goto line
+	if e.inputState.PendingGotoLine {
+		return e.handleGotoLineInput(ev)
+	}
+
 	// Handle pending find character
 	if e.inputState.PendingFindForward || e.inputState.PendingFindBackward {
 		if ev.Key() == tcell.KeyEscape {
@@ -153,6 +158,11 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 			pane.ClearSelection()
 			e.inputState.Reset()
 			e.scheduleAutoSave()
+
+		// Goto line
+		case ':':
+			e.inputState.PendingGotoLine = true
+			e.inputState.GotoLineBuffer = ""
 
 		// Paste (replace selection)
 		case 'p', 'P':
