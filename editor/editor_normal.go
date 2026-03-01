@@ -29,40 +29,40 @@ func (e *Editor) handleNormalMode(ev *tcell.EventKey) bool {
 
 	case tcell.KeyUp:
 		pane.MoveUpN(e.inputState.GetCount())
-		e.inputState.Reset()
 
 	case tcell.KeyDown:
 		pane.MoveDownN(e.inputState.GetCount())
-		e.inputState.Reset()
 
 	case tcell.KeyLeft:
 		pane.MoveLeftN(e.inputState.GetCount())
-		e.inputState.Reset()
 
 	case tcell.KeyRight:
 		pane.MoveRightN(e.inputState.GetCount())
-		e.inputState.Reset()
 
 	case tcell.KeyCtrlD:
 		pane.PageDown(height)
-		e.inputState.Reset()
 
 	case tcell.KeyCtrlU:
 		pane.PageUp(height)
-		e.inputState.Reset()
 
 	case tcell.KeyCtrlR:
 		e.redo()
-		e.inputState.Reset()
 
 	case tcell.KeyRune:
-		return e.handleNormalModeRune(ev.Rune())
+		skipReset := e.handleNormalModeRune(ev.Rune())
+		if !skipReset {
+			e.inputState.Reset()
+		}
+		return false
 	}
 
+	e.inputState.Reset()
 	return false
 }
 
-// handleNormalModeRune handles rune keys in normal mode
+// handleNormalModeRune handles rune keys in normal mode.
+// Returns true if the command accumulates state (skip auto-reset),
+// false if auto-reset should happen after this command.
 func (e *Editor) handleNormalModeRune(r rune) bool {
 	pane := e.activePane()
 	buf := pane.Buffer
@@ -70,77 +70,68 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 
 	// Handle pending operator
 	if e.inputState.PendingOperator != 0 {
-		return e.handlePendingOperator(r)
+		e.handlePendingOperator(r)
+		return false
 	}
 
 	switch r {
-	// Numeric prefix
+	// Numeric prefix — accumulates state, skip reset
 	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		e.inputState.AddDigit(int(r - '0'))
-		return false
+		return true
 	case '0':
 		if e.inputState.HasCount {
 			e.inputState.AddDigit(0)
-		} else {
-			pane.MoveToLineStart()
+			return true
 		}
+		pane.MoveToLineStart()
 		return false
 
 	// Navigation
 	case 'h':
 		pane.MoveLeftN(count)
-		e.inputState.Reset()
 	case 'j':
 		pane.MoveDownN(count)
-		e.inputState.Reset()
 	case 'k':
 		pane.MoveUpN(count)
-		e.inputState.Reset()
 	case 'l':
 		pane.MoveRightN(count)
-		e.inputState.Reset()
 	case '$':
 		pane.MoveToLineEnd()
-		e.inputState.Reset()
 
 	// Mode switching
 	case 'i':
 		e.enterInsertMode()
-		e.inputState.Reset()
 	case 'a':
 		if pane.CursorCol < len(buf.Lines[pane.CursorRow]) {
 			pane.CursorCol++
 		}
 		e.enterInsertMode()
-		e.inputState.Reset()
 	case 'A':
 		pane.MoveToLineEnd()
 		e.enterInsertMode()
-		e.inputState.Reset()
 	case 'I':
 		pane.MoveToLineStart()
 		e.enterInsertMode()
-		e.inputState.Reset()
 	case 'o':
 		e.enterInsertMode()
 		pane.CursorRow, pane.CursorCol = buf.OpenLineBelow(pane.CursorRow)
-		e.inputState.Reset()
 		e.scheduleAutoSave()
 	case 'O':
 		e.enterInsertMode()
 		pane.CursorRow, pane.CursorCol = buf.OpenLineAbove(pane.CursorRow)
-		e.inputState.Reset()
 		e.scheduleAutoSave()
 	case 'v':
 		e.mode = ModeVisual
 		pane.StartSelection()
-		e.inputState.Reset()
 
-	// Find character
+	// Find character — accumulates state, skip reset
 	case 'f':
 		e.inputState.PendingFindForward = true
+		return true
 	case 'F':
 		e.inputState.PendingFindBackward = true
+		return true
 	case ';':
 		// Repeat last find
 		if e.inputState.HasLastFind {
@@ -152,7 +143,6 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 				}
 			}
 		}
-		e.inputState.Reset()
 	case ',':
 		// Repeat last find in reverse
 		if e.inputState.HasLastFind {
@@ -164,46 +154,40 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 				}
 			}
 		}
-		e.inputState.Reset()
 
-	// Goto line
+	// Goto line — accumulates state, skip reset
 	case ':':
 		e.inputState.PendingGotoLine = true
 		e.inputState.GotoLineBuffer = ""
+		return true
 
-	// Page navigation (like G and gg)
+	// Page navigation
 	case 'G':
 		if e.inputState.HasCount {
 			pane.GotoLine(count)
 		} else {
-			pane.GotoLine(len(buf.Lines)) // Go to last line
+			pane.GotoLine(len(buf.Lines))
 		}
-		e.inputState.Reset()
 	case 'g':
-		// For gg, we'd need another pending state, but for simplicity
-		// just go to first line on single 'g'
 		pane.GotoLine(1)
-		e.inputState.Reset()
 
 	// Word navigation
 	case 'w':
 		for i := 0; i < count; i++ {
 			pane.MoveToNextWord()
 		}
-		e.inputState.Reset()
 	case 'b':
 		for i := 0; i < count; i++ {
 			pane.MoveToPrevWord()
 		}
-		e.inputState.Reset()
 
-	// Operators (start pending state)
+	// Operators — accumulates state, skip reset
 	case 'd':
 		e.inputState.PendingOperator = 'd'
-		return false
+		return true
 	case 'y':
 		e.inputState.PendingOperator = 'y'
-		return false
+		return true
 
 	// Delete character under cursor
 	case 'x':
@@ -223,7 +207,6 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 			e.history.RecordDelete(buf, pane.CursorRow, startCol, [][]rune{deletedChars})
 		}
 		e.scheduleAutoSave()
-		e.inputState.Reset()
 
 	// Paste after cursor
 	case 'p':
@@ -241,7 +224,6 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 				OldText: oldLines,
 			})
 		}
-		e.inputState.Reset()
 
 	// Paste before cursor
 	case 'P':
@@ -259,30 +241,25 @@ func (e *Editor) handleNormalModeRune(r rune) bool {
 				OldText: oldLines,
 			})
 		}
-		e.inputState.Reset()
 
 	// Undo
 	case 'u':
 		e.undo()
-		e.inputState.Reset()
 
-	// Mark operations
+	// Mark operations — accumulates state, skip reset
 	case 'm':
 		e.inputState.PendingMark = true
-		return false
+		return true
 	case '`':
 		e.inputState.PendingJumpToMark = true
-		return false
-
-	default:
-		e.inputState.Reset()
+		return true
 	}
 
 	return false
 }
 
 // handlePendingOperator handles the second key after an operator (d, y)
-func (e *Editor) handlePendingOperator(r rune) bool {
+func (e *Editor) handlePendingOperator(r rune) {
 	pane := e.activePane()
 	buf := pane.Buffer
 	op := e.inputState.PendingOperator
@@ -299,9 +276,7 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 		}
 		e.clipboard = deleted
 		e.clipboardLine = true
-		// Record for undo - treat as deletion of full lines
 		e.history.RecordDeleteLines(buf, startRow, deleted)
-		// Clamp cursor after deletion
 		pane.clampCursor()
 		e.scheduleAutoSave()
 
@@ -321,7 +296,6 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 			pane.MoveToNextWord()
 		}
 		endRow, endCol := pane.CursorRow, pane.CursorCol
-		// Restore cursor and delete range
 		pane.CursorRow, pane.CursorCol = startRow, startCol
 		deleted := buf.DeleteRange(startRow, startCol, endRow, endCol)
 		e.clipboard = deleted
@@ -370,13 +344,7 @@ func (e *Editor) handlePendingOperator(r rune) bool {
 			buf.Modified = true
 			e.scheduleAutoSave()
 		}
-
-	default:
-		// Unknown operator combination, just reset
 	}
-
-	e.inputState.Reset()
-	return false
 }
 
 // handleFindCharInput handles character input after f or F
@@ -416,7 +384,6 @@ func (e *Editor) handleGotoLineInput(ev *tcell.EventKey) bool {
 	case tcell.KeyEscape:
 		e.inputState.Reset()
 	case tcell.KeyEnter:
-		// Execute goto line
 		if e.inputState.GotoLineBuffer != "" {
 			lineNum := 0
 			for _, ch := range e.inputState.GotoLineBuffer {

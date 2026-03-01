@@ -6,17 +6,6 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-func (e *Editor) reindentPastedRange(buf *Buffer, firstRow, lastRow int) {
-	if firstRow < 0 || lastRow < 0 || firstRow > lastRow {
-		return
-	}
-	if buf.FileType == "" || !buf.Config.AutoIndentation {
-		return
-	}
-	contextIndent := buf.GetPrevNonEmptyLineIndent(firstRow)
-	buf.ReindentLines(firstRow, lastRow, contextIndent)
-}
-
 // startInsertSession records the cursor position when entering insert mode
 func (e *Editor) startInsertSession() {
 	pane := e.activePane()
@@ -45,33 +34,6 @@ func (e *Editor) deleteCharUnderCursorCmd() {
 	e.scheduleAutoSave()
 }
 
-// endInsertSession reindents lines if multiple lines were created during the session.
-// Single-line sessions are skipped — they already have correct indent from o/O/Enter.
-func (e *Editor) endInsertSession() {
-	pane := e.activePane()
-	buf := pane.Buffer
-	endRow := pane.CursorRow
-	startRow := e.insertStartRow
-
-	// Only reindent multi-line sessions
-	if endRow <= startRow || startRow < 0 {
-		return
-	}
-
-	if buf.FileType == "" || !buf.Config.AutoIndentation {
-		return
-	}
-
-	contextIndent := buf.GetPrevNonEmptyLineIndent(startRow)
-	buf.ReindentLines(startRow, endRow, contextIndent)
-
-	// Clamp cursor column to the current line length after reindent
-	lineLen := len(buf.Lines[pane.CursorRow])
-	if pane.CursorCol > lineLen {
-		pane.CursorCol = lineLen
-	}
-}
-
 // ReindentEvent is a custom tcell event for debounced reindentation
 type ReindentEvent struct {
 	when time.Time
@@ -82,55 +44,18 @@ func (e *ReindentEvent) When() time.Time {
 	return e.when
 }
 
-// reindentInsertSession reindents pasted text without leaving insert mode.
-// Only activates for multi-line insert sessions (i.e. pastes). Single-line
-// edits already have correct indentation from o/O/Enter.
-func (e *Editor) reindentInsertSession() {
-	pane := e.activePane()
-	buf := pane.Buffer
-	cursorRow := pane.CursorRow
-	startRow := e.insertStartRow
-
-	// Only reindent multi-line sessions (paste). Single-line typing
-	// already has correct indent from o/O/InsertNewlineWithIndent.
-	if cursorRow <= startRow || startRow < 0 {
-		return
-	}
-
-	if buf.FileType == "" || !buf.Config.AutoIndentation {
-		return
-	}
-
-	endRow := cursorRow
-	// If cursor row is whitespace-only, exclude it — the user hasn't
-	// typed real content there yet (e.g. paste ended with a newline).
-	if !hasContent(buf.Lines[cursorRow]) {
-		endRow = cursorRow - 1
-	}
-
-	if startRow > endRow {
-		return
-	}
-
-	contextIndent := buf.GetPrevNonEmptyLineIndent(startRow)
-
-	if endRow == cursorRow {
-		// Cursor row included — adjust cursor col for indent change
-		oldLen := len(buf.Lines[cursorRow])
-		buf.ReindentLines(startRow, endRow, contextIndent)
-		newLen := len(buf.Lines[cursorRow])
-		pane.CursorCol += newLen - oldLen
-		if pane.CursorCol < 0 {
-			pane.CursorCol = 0
-		}
-		if pane.CursorCol > newLen {
-			pane.CursorCol = newLen
-		}
-	} else {
-		buf.ReindentLines(startRow, endRow, contextIndent)
-	}
-
+// EventMappingTimeout is a custom tcell event posted after MappingTimeout elapses.
+// The snapshot field captures mapKeyTime at goroutine launch for race-safe comparison.
+type EventMappingTimeout struct {
+	when     time.Time
+	snapshot time.Time // mapKeyTime when the timeout goroutine was launched
 }
+
+// When returns the time when the event was created
+func (e *EventMappingTimeout) When() time.Time {
+	return e.when
+}
+
 
 // handleInsertMode handles key events in insert mode (text editing)
 func (e *Editor) handleInsertMode(ev *tcell.EventKey) bool {

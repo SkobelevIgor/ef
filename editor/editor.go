@@ -218,6 +218,10 @@ func (e *Editor) Run() error {
 			if e.mode == ModeInsert {
 				e.reindentInsertSession()
 			}
+		case *EventMappingTimeout:
+			if ev.snapshot.Equal(e.mapKeyTime) && e.pendingMapKeys != "" {
+				e.flushPendingMapKeys()
+			}
 		}
 	}
 }
@@ -474,9 +478,13 @@ func (e *Editor) tryKeyMapping(ev *tcell.EventKey) bool {
 	e.mapKeyTime = time.Now()
 
 	// Set up a timeout to flush pending keys if no more input comes
+	snapshot := e.mapKeyTime
 	go func() {
 		time.Sleep(MappingTimeout)
-		// Post a custom event to check timeout (simplified: just note timeout occurred)
+		e.screen.PostEvent(&EventMappingTimeout{
+			when:     time.Now(),
+			snapshot: snapshot,
+		})
 	}()
 
 	return true // Consume the key, waiting for more

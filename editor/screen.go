@@ -517,27 +517,6 @@ func getLineNumberWidthFromPane(pane *Pane) int {
 	return lineNumberWidth(len(pane.Buffer.Lines))
 }
 
-// getVisualColumn calculates the visual column position accounting for tab expansion
-func getVisualColumn(line []rune, charCol int, tabStop int) int {
-	if tabStop <= 0 {
-		tabStop = DefaultTabStop
-	}
-	visualCol := 0
-	for i := 0; i < charCol && i < len(line); i++ {
-		if line[i] == '\t' {
-			// Tab expands to next tab stop
-			visualCol += tabStop - (visualCol % tabStop)
-		} else {
-			visualCol++
-		}
-	}
-	return visualCol
-}
-
-// getVisualLineWidth calculates the visual width of a line accounting for tabs
-func getVisualLineWidth(line []rune, tabStop int) int {
-	return getVisualColumn(line, len(line), tabStop)
-}
 
 // calcCursorScreenPos calculates the screen position of the cursor with line wrapping.
 // lines is the buffer content, cursorRow/cursorCol/scrollOffset are the navigation state,
@@ -559,7 +538,7 @@ func calcCursorScreenPos(lines [][]rune, cursorRow, cursorCol, scrollOffset, pan
 		if len(line) == 0 {
 			screenY++
 		} else {
-			visualWidth := getVisualLineWidth(line, tabStop)
+			visualWidth := VisualLineWidth(line, tabStop)
 			screenY += (visualWidth + textWidth - 1) / textWidth
 		}
 	}
@@ -569,7 +548,7 @@ func calcCursorScreenPos(lines [][]rune, cursorRow, cursorCol, scrollOffset, pan
 	if len(cursorLine) == 0 || cursorCol == 0 {
 		screenX = lineNumWidth
 	} else {
-		visualCol := getVisualColumn(cursorLine, cursorCol, tabStop)
+		visualCol := VisualColumn(cursorLine, cursorCol, tabStop)
 		wrapRow := visualCol / textWidth
 		screenY += wrapRow
 		screenX = lineNumWidth + (visualCol % textWidth)

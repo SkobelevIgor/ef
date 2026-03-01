@@ -26,14 +26,7 @@ func (e *Editor) enterSearchMode() {
 		search.NoMatches = len(search.Matches) == 0
 
 		// Find first match after current cursor (T048)
-		if len(search.Matches) > 0 {
-			search.CurrentIndex = FindFirstMatchAfterCursor(search.Matches, pane.CursorRow, pane.CursorCol)
-			if search.CurrentIndex >= 0 {
-				match := search.Matches[search.CurrentIndex]
-				pane.CursorRow = match.Row
-				pane.CursorCol = match.Col
-			}
-		}
+		e.findAndNavigateToMatch(pane.CursorRow, pane.CursorCol)
 	}
 
 	e.inputState.Search = search
@@ -107,13 +100,7 @@ func (e *Editor) updateSearchMatches() {
 
 	// Find first match after CursorZero for incremental search highlighting
 	if len(search.Matches) > 0 {
-		search.CurrentIndex = FindFirstMatchAfterCursor(search.Matches, search.CursorZeroRow, search.CursorZeroCol)
-		// Move cursor to show incremental match
-		if search.CurrentIndex >= 0 {
-			match := search.Matches[search.CurrentIndex]
-			pane.CursorRow = match.Row
-			pane.CursorCol = match.Col
-		}
+		e.findAndNavigateToMatch(search.CursorZeroRow, search.CursorZeroCol)
 	} else {
 		search.CurrentIndex = -1
 	}
@@ -145,6 +132,21 @@ func (e *Editor) confirmSearch() {
 }
 
 // navigateToCurrentMatch moves cursor to the current match position
+// findAndNavigateToMatch finds the first match after the given cursor position and navigates to it.
+func (e *Editor) findAndNavigateToMatch(cursorRow, cursorCol int) {
+	search := e.inputState.Search
+	if search == nil || len(search.Matches) == 0 {
+		return
+	}
+	search.CurrentIndex = FindFirstMatchAfterCursor(search.Matches, cursorRow, cursorCol)
+	if search.CurrentIndex >= 0 {
+		pane := e.activePane()
+		match := search.Matches[search.CurrentIndex]
+		pane.CursorRow = match.Row
+		pane.CursorCol = match.Col
+	}
+}
+
 func (e *Editor) navigateToCurrentMatch() {
 	search := e.inputState.Search
 	if search == nil || search.CurrentIndex < 0 || search.CurrentIndex >= len(search.Matches) {
@@ -272,10 +274,7 @@ func (e *Editor) replaceCurrentMatch() {
 
 	// Find next match after current cursor position (not CursorZero)
 	if len(search.Matches) > 0 {
-		search.CurrentIndex = FindFirstMatchAfterCursor(search.Matches, cursorRow, cursorCol)
-		if search.CurrentIndex >= 0 {
-			e.navigateToCurrentMatch()
-		}
+		e.findAndNavigateToMatch(cursorRow, cursorCol)
 	} else {
 		search.CurrentIndex = -1
 	}
