@@ -9,36 +9,13 @@ func (e *Editor) performPaste(before bool) (int, int) {
 		return -1, -1
 	}
 
-	pane := e.activePane()
-	buf := pane.Buffer
-
 	if e.clipboardLine {
-		// Paste whole lines before or after current line
-		var firstRow int
-		if before {
-			firstRow = pane.CursorRow
-			for i := len(e.clipboard) - 1; i >= 0; i-- {
-				lineCopy := make([]rune, len(e.clipboard[i]))
-				copy(lineCopy, e.clipboard[i])
-				buf.InsertLineBefore(pane.CursorRow, lineCopy)
-			}
-		} else {
-			firstRow = pane.CursorRow + 1
-			for i := len(e.clipboard) - 1; i >= 0; i-- {
-				lineCopy := make([]rune, len(e.clipboard[i]))
-				copy(lineCopy, e.clipboard[i])
-				buf.InsertLineAfter(pane.CursorRow, lineCopy)
-			}
-			pane.CursorRow++
-		}
-		lastRow := firstRow + len(e.clipboard) - 1
-		pane.CursorCol = 0
-		buf.Modified = true
-		e.scheduleAutoSave()
-		return firstRow, lastRow
+		return e.pasteWholeLines(before)
 	}
 
 	// Compute insert position: at cursor for before, after cursor for after
+	pane := e.activePane()
+	buf := pane.Buffer
 	insertPos := pane.CursorCol
 	if !before {
 		insertPos = pane.CursorCol + 1
@@ -48,24 +25,67 @@ func (e *Editor) performPaste(before bool) (int, int) {
 		}
 	}
 
-	// Single line paste - inline, no reindent needed
 	if len(e.clipboard) == 1 {
-		line := buf.Lines[pane.CursorRow]
-		newLine := make([]rune, len(line)+len(e.clipboard[0]))
-		copy(newLine[:insertPos], line[:insertPos])
-		copy(newLine[insertPos:], e.clipboard[0])
-		copy(newLine[insertPos+len(e.clipboard[0]):], line[insertPos:])
-		buf.Lines[pane.CursorRow] = newLine
-		pane.CursorCol = insertPos + len(e.clipboard[0]) - 1
-		if pane.CursorCol < 0 {
-			pane.CursorCol = 0
-		}
-		buf.Modified = true
-		e.scheduleAutoSave()
+		e.pasteSingleLine(insertPos)
 		return -1, -1
 	}
 
-	// Multi-line paste
+	return e.pasteMultiLine(insertPos)
+}
+
+// pasteWholeLines pastes clipboard content as whole lines before or after cursor line.
+func (e *Editor) pasteWholeLines(before bool) (int, int) {
+	pane := e.activePane()
+	buf := pane.Buffer
+
+	var firstRow int
+	if before {
+		firstRow = pane.CursorRow
+		for i := len(e.clipboard) - 1; i >= 0; i-- {
+			lineCopy := make([]rune, len(e.clipboard[i]))
+			copy(lineCopy, e.clipboard[i])
+			buf.InsertLineBefore(pane.CursorRow, lineCopy)
+		}
+	} else {
+		firstRow = pane.CursorRow + 1
+		for i := len(e.clipboard) - 1; i >= 0; i-- {
+			lineCopy := make([]rune, len(e.clipboard[i]))
+			copy(lineCopy, e.clipboard[i])
+			buf.InsertLineAfter(pane.CursorRow, lineCopy)
+		}
+		pane.CursorRow++
+	}
+	lastRow := firstRow + len(e.clipboard) - 1
+	pane.CursorCol = 0
+	buf.Modified = true
+	e.scheduleAutoSave()
+	return firstRow, lastRow
+}
+
+// pasteSingleLine pastes a single clipboard line inline at insertPos.
+func (e *Editor) pasteSingleLine(insertPos int) {
+	pane := e.activePane()
+	buf := pane.Buffer
+
+	line := buf.Lines[pane.CursorRow]
+	newLine := make([]rune, len(line)+len(e.clipboard[0]))
+	copy(newLine[:insertPos], line[:insertPos])
+	copy(newLine[insertPos:], e.clipboard[0])
+	copy(newLine[insertPos+len(e.clipboard[0]):], line[insertPos:])
+	buf.Lines[pane.CursorRow] = newLine
+	pane.CursorCol = insertPos + len(e.clipboard[0]) - 1
+	if pane.CursorCol < 0 {
+		pane.CursorCol = 0
+	}
+	buf.Modified = true
+	e.scheduleAutoSave()
+}
+
+// pasteMultiLine pastes multi-line clipboard content, splitting the current line.
+func (e *Editor) pasteMultiLine(insertPos int) (int, int) {
+	pane := e.activePane()
+	buf := pane.Buffer
+
 	line := buf.Lines[pane.CursorRow]
 	firstRow := pane.CursorRow + 1
 

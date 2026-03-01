@@ -230,43 +230,6 @@ func (b *Buffer) OpenLineBelow(row int) (int, int) {
 	return row + 1, len(indent)
 }
 
-// smartIndentForNewLine computes indentation for a new line opened after row.
-// It starts from the current line's indent and adjusts based on content:
-// indent after '{', '(', ':'; dedent if line ends with ')' with unmatched parens.
-func (b *Buffer) smartIndentForNewLine(row int) []rune {
-	line := b.Lines[row]
-	stripped := stripLeadingWhitespace(line)
-	level := b.getIndentLevel(line)
-
-	if len(stripped) > 0 {
-		last := stripped[len(stripped)-1]
-		openParens := countRune(stripped, '(')
-		closeParens := countRune(stripped, ')')
-		openBraces := countRune(stripped, '{')
-		closeBraces := countRune(stripped, '}')
-
-		// Line ends with opener or colon — indent
-		if last == ':' || last == '{' {
-			level++
-		} else if last == '(' && openParens > closeParens {
-			level++
-		}
-
-		// Line ends with closer and has net closing — dedent
-		if last == ')' && closeParens > openParens {
-			level--
-		}
-		if last == '}' && closeBraces > openBraces {
-			level--
-		}
-	}
-
-	if level < 0 {
-		level = 0
-	}
-	return b.makeIndent(level)
-}
-
 // OpenLineAbove opens a new line above the given row with auto-indentation, returns new row, col
 func (b *Buffer) OpenLineAbove(row int) (int, int) {
 	var indent []rune
@@ -305,7 +268,7 @@ func (b *Buffer) InsertTab(row, col int) int {
 func (b *Buffer) getLeadingWhitespace(line []rune) []rune {
 	var ws []rune
 	for _, ch := range line {
-		if ch == ' ' || ch == '\t' {
+		if isWhitespace(ch) {
 			ws = append(ws, ch)
 		} else {
 			break
@@ -324,24 +287,12 @@ func (b *Buffer) GetShiftWidth() int {
 
 // GetVisualColumn calculates the visual column position accounting for tab expansion
 func (b *Buffer) GetVisualColumn(line []rune, charCol int) int {
-	tabStop := b.Config.TabStop
-	if tabStop <= 0 {
-		tabStop = DefaultTabStop
-	}
-	visualCol := 0
-	for i := 0; i < charCol && i < len(line); i++ {
-		if line[i] == '\t' {
-			visualCol += tabStop - (visualCol % tabStop)
-		} else {
-			visualCol++
-		}
-	}
-	return visualCol
+	return VisualColumn(line, charCol, b.Config.TabStop)
 }
 
 // GetVisualLineWidth calculates the visual width of a line accounting for tabs
 func (b *Buffer) GetVisualLineWidth(line []rune) int {
-	return b.GetVisualColumn(line, len(line))
+	return VisualLineWidth(line, b.Config.TabStop)
 }
 
 // DeleteLine deletes the specified row and returns its content
@@ -419,11 +370,7 @@ func (b *Buffer) InsertLineBefore(row int, line []rune) {
 // DeleteRange deletes text from (startRow, startCol) to (endRow, endCol) exclusive
 // Returns the deleted text as a slice of lines
 func (b *Buffer) DeleteRange(startRow, startCol, endRow, endCol int) [][]rune {
-	// Normalize: ensure start is before end
-	if startRow > endRow || (startRow == endRow && startCol > endCol) {
-		startRow, endRow = endRow, startRow
-		startCol, endCol = endCol, startCol
-	}
+	startRow, startCol, endRow, endCol = NormalizeRange(startRow, startCol, endRow, endCol)
 
 	// Clamp bounds
 	if startRow < 0 {
@@ -484,11 +431,7 @@ func (b *Buffer) DeleteRange(startRow, startCol, endRow, endCol int) [][]rune {
 
 // GetRange returns text from (startRow, startCol) to (endRow, endCol) inclusive
 func (b *Buffer) GetRange(startRow, startCol, endRow, endCol int) [][]rune {
-	// Normalize: ensure start is before end
-	if startRow > endRow || (startRow == endRow && startCol > endCol) {
-		startRow, endRow = endRow, startRow
-		startCol, endCol = endCol, startCol
-	}
+	startRow, startCol, endRow, endCol = NormalizeRange(startRow, startCol, endRow, endCol)
 
 	// Clamp bounds
 	if startRow < 0 {
@@ -620,53 +563,10 @@ func (b *Buffer) UnindentRange(startRow, endRow int) {
 	b.ModCount++
 }
 
-// getIndentLevel returns the indent level of a line.
-// Tabs count as 1 level, shiftWidth spaces count as 1 level.
-func (b *Buffer) getIndentLevel(line []rune) int {
-	sw := b.GetShiftWidth()
-	level := 0
-	spaces := 0
-	for _, ch := range line {
-		if ch == '\t' {
-			level++
-			spaces = 0
-		} else if ch == ' ' {
-			spaces++
-			if spaces >= sw {
-				level++
-				spaces = 0
-			}
-		} else {
-			break
-		}
-	}
-	return level
-}
-
-// makeIndent creates indentation whitespace for the given level
-func (b *Buffer) makeIndent(level int) []rune {
-	if level <= 0 {
-		return nil
-	}
-	if b.Config.ExpandTab {
-		sw := b.GetShiftWidth()
-		indent := make([]rune, level*sw)
-		for i := range indent {
-			indent[i] = ' '
-		}
-		return indent
-	}
-	indent := make([]rune, level)
-	for i := range indent {
-		indent[i] = '\t'
-	}
-	return indent
-}
-
 // hasContent returns true if a line contains non-whitespace characters
 func hasContent(line []rune) bool {
 	for _, ch := range line {
-		if ch != ' ' && ch != '\t' {
+		if !isWhitespace(ch) {
 			return true
 		}
 	}
@@ -676,164 +576,21 @@ func hasContent(line []rune) bool {
 // stripLeadingWhitespace returns a line with leading whitespace removed
 func stripLeadingWhitespace(line []rune) []rune {
 	for i, ch := range line {
-		if ch != ' ' && ch != '\t' {
+		if !isWhitespace(ch) {
 			return line[i:]
 		}
 	}
 	return nil
 }
 
-// GetPrevNonEmptyLineIndent returns the indent level of the first non-empty
-// line above row. If the line ends with { or :, adds +1 for brace-open context.
-func (b *Buffer) GetPrevNonEmptyLineIndent(row int) int {
-	for r := row - 1; r >= 0; r-- {
-		line := b.Lines[r]
-		if !hasContent(line) {
-			continue
-		}
-		level := b.getIndentLevel(line)
-		// Check if line ends with opening brace/colon (brace-aware indent)
-		if ch := lastNonWhitespace(line); ch == '{' || ch == ':' {
-			level++
-		}
-		return level
-	}
-	return 0
-}
-
 // lastNonWhitespace returns the last non-whitespace character in a line, or 0
 func lastNonWhitespace(line []rune) rune {
 	for i := len(line) - 1; i >= 0; i-- {
-		if line[i] != ' ' && line[i] != '\t' {
+		if !isWhitespace(line[i]) {
 			return line[i]
 		}
 	}
 	return 0
-}
-
-// countRune counts occurrences of a rune in a slice
-func countRune(line []rune, ch rune) int {
-	n := 0
-	for _, r := range line {
-		if r == ch {
-			n++
-		}
-	}
-	return n
-}
-
-// firstNonWhitespace returns the first non-whitespace character in a line, or 0
-func firstNonWhitespace(line []rune) rune {
-	for _, ch := range line {
-		if ch != ' ' && ch != '\t' {
-			return ch
-		}
-	}
-	return 0
-}
-
-// ReindentLines reindents a range of lines using block-structure-aware
-// indentation. It computes the proper indent for each line based on
-// brace/colon patterns rather than preserving original relative indentation.
-func (b *Buffer) ReindentLines(startRow, endRow, contextIndent int) {
-	if startRow > endRow {
-		return
-	}
-	if startRow < 0 {
-		startRow = 0
-	}
-	if endRow >= len(b.Lines) {
-		endRow = len(b.Lines) - 1
-	}
-
-	currentIndent := contextIndent
-	braceDepth := 0
-	prevLineContinuation := false
-
-	for row := startRow; row <= endRow; row++ {
-		line := b.Lines[row]
-		stripped := stripLeadingWhitespace(line)
-
-		// Empty/whitespace-only lines
-		if len(stripped) == 0 {
-			if len(line) > 0 {
-				b.Lines[row] = nil
-			}
-			// Reset indent at paragraph boundaries when outside braces
-			if braceDepth <= 0 {
-				currentIndent = contextIndent
-			}
-			continue
-		}
-
-		openBraces := countRune(stripped, '{')
-		closeBraces := countRune(stripped, '}')
-		openParens := countRune(stripped, '(')
-		closeParens := countRune(stripped, ')')
-
-		first := stripped[0]
-		last := stripped[len(stripped)-1]
-
-		// If line starts with a closer, decrease indent for this line
-		closerAtStart := first == '}' || first == ')'
-		lineIndent := currentIndent
-		if closerAtStart {
-			lineIndent--
-		}
-		if lineIndent < 0 {
-			lineIndent = 0
-		}
-
-		// Apply indent
-		indent := b.makeIndent(lineIndent)
-		newLine := make([]rune, len(indent)+len(stripped))
-		copy(newLine, indent)
-		copy(newLine[len(indent):], stripped)
-		b.Lines[row] = newLine
-
-		// Track brace depth for paragraph reset logic
-		braceDepth += openBraces - closeBraces
-
-		// Update currentIndent for next line based on net braces
-		netBraces := openBraces - closeBraces
-		if closerAtStart && first == '}' {
-			netBraces++
-		}
-		currentIndent = lineIndent + netBraces
-
-		// Unmatched opening paren at end of line (multi-line call)
-		if last == '(' && openParens > closeParens {
-			currentIndent++
-		}
-		// Unmatched closing paren at end of line
-		if last == ')' && closeParens > openParens && first != ')' {
-			currentIndent--
-		}
-
-		// ':' at end of line (Python block opener)
-		if last == ':' {
-			currentIndent++
-		}
-
-		// '\' at end of line (Python line continuation) — indent next line
-		if last == '\\' {
-			if !prevLineContinuation {
-				currentIndent++
-			}
-			prevLineContinuation = true
-		} else {
-			if prevLineContinuation {
-				currentIndent--
-			}
-			prevLineContinuation = false
-		}
-
-		if currentIndent < 0 {
-			currentIndent = 0
-		}
-	}
-	b.Modified = true
-	b.ModCount++
 }
 
 // FindAllMatches finds all case-insensitive occurrences of query in the buffer

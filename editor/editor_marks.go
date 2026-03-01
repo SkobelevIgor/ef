@@ -78,24 +78,5 @@ func (e *Editor) jumpToMark(id rune) {
 	pane := e.panes[paneIdx]
 	buf := pane.Buffer
 
-	// Clamp row to valid range
-	row := mark.Row
-	if row >= len(buf.Lines) {
-		row = len(buf.Lines) - 1
-	}
-	if row < 0 {
-		row = 0
-	}
-
-	// Clamp column to line length
-	col := mark.Col
-	if col > len(buf.Lines[row]) {
-		col = len(buf.Lines[row])
-	}
-	if col < 0 {
-		col = 0
-	}
-
-	pane.CursorRow = row
-	pane.CursorCol = col
+	pane.CursorRow, pane.CursorCol = ClampPosition(buf.Lines, mark.Row, mark.Col)
 }

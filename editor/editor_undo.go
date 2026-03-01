@@ -1,5 +1,12 @@
 package editor
 
+// applyRemoveText and applyInsertText are mirror functions:
+//   - applyRemoveText removes text (used by undo-insert and redo-delete)
+//   - applyInsertText inserts text (used by undo-delete and redo-insert)
+// Both handle three cases identically but inverted: whole-line operations
+// (LineDeletion flag), single-line inline edits, and multi-line edits
+// that split/merge lines at the change point.
+
 // applyRemoveText removes previously inserted text from the buffer (used by undo insert / redo delete)
 func applyRemoveText(buf *Buffer, change *Change) {
 	if change.LineDeletion {
@@ -67,12 +74,7 @@ func applyInsertText(buf *Buffer, change *Change) {
 // applyReplaceLines replaces all buffer lines with the given lines and updates pane cursor
 func applyReplaceLines(buf *Buffer, pane *Pane, change *Change, lines [][]rune) {
 	buf.Lines = copyLines(lines)
-	pane.CursorRow = change.Row
-	pane.CursorCol = change.Col
-	if pane.CursorRow >= len(buf.Lines) {
-		pane.CursorRow = len(buf.Lines) - 1
-	}
-	pane.clampCursorCol()
+	pane.CursorRow, pane.CursorCol = ClampPosition(buf.Lines, change.Row, change.Col)
 	buf.Modified = true
 }
 

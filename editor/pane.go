@@ -213,15 +213,7 @@ func (p *Pane) ClearSelection() {
 
 // GetSelection returns the selection bounds normalized (start before end)
 func (p *Pane) GetSelection() (startRow, startCol, endRow, endCol int) {
-	startRow, startCol = p.SelectionStartRow, p.SelectionStartCol
-	endRow, endCol = p.CursorRow, p.CursorCol
-
-	// Normalize: ensure start is before end
-	if startRow > endRow || (startRow == endRow && startCol > endCol) {
-		startRow, endRow = endRow, startRow
-		startCol, endCol = endCol, startCol
-	}
-	return
+	return NormalizeRange(p.SelectionStartRow, p.SelectionStartCol, p.CursorRow, p.CursorCol)
 }
 
 // IsInSelection returns true if the given position is within the selection

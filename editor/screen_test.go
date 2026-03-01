@@ -22,9 +22,9 @@ func TestGetVisualColumnScreen(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := getVisualColumn(tt.line, tt.charCol, tt.tabStop)
+			got := VisualColumn(tt.line, tt.charCol, tt.tabStop)
 			if got != tt.want {
-				t.Errorf("getVisualColumn(%q, %d, %d) = %d, want %d",
+				t.Errorf("VisualColumn(%q, %d, %d) = %d, want %d",
 					string(tt.line), tt.charCol, tt.tabStop, got, tt.want)
 			}
 		})
@@ -46,9 +46,9 @@ func TestGetVisualLineWidth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := getVisualLineWidth(tt.line, tt.tabStop)
+			got := VisualLineWidth(tt.line, tt.tabStop)
 			if got != tt.want {
-				t.Errorf("getVisualLineWidth(%q, %d) = %d, want %d",
+				t.Errorf("VisualLineWidth(%q, %d) = %d, want %d",
 					string(tt.line), tt.tabStop, got, tt.want)
 			}
 		})
