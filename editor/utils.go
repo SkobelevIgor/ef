@@ -1,5 +1,7 @@
 package editor
 
+import "unicode"
+
 // VisualColumn calculates the visual column position accounting for tab expansion.
 // This is the single source of truth for visual column calculation used by both
 // buffer operations and screen rendering.
@@ -58,4 +60,9 @@ func ClampPosition(lines [][]rune, row, col int) (int, int) {
 // isWhitespace returns true for space and tab characters.
 func isWhitespace(r rune) bool {
 	return r == ' ' || r == '\t'
+}
+
+// isWordChar returns true for alphanumeric and underscore characters (Vim word chars).
+func isWordChar(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }

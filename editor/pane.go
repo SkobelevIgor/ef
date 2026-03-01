@@ -337,13 +337,23 @@ func (p *Pane) PageUp(height int) {
 func (p *Pane) MoveToNextWord() {
 	line := p.Buffer.Lines[p.CursorRow]
 
-	// Skip current word (non-whitespace)
-	for p.CursorCol < len(line) && !isDelimiter(line[p.CursorCol]) {
-		p.CursorCol++
+	if p.CursorCol < len(line) {
+		ch := line[p.CursorCol]
+		if isWordChar(ch) {
+			// Skip word characters
+			for p.CursorCol < len(line) && isWordChar(line[p.CursorCol]) {
+				p.CursorCol++
+			}
+		} else if !isWhitespace(ch) {
+			// Skip punctuation characters
+			for p.CursorCol < len(line) && !isWordChar(line[p.CursorCol]) && !isWhitespace(line[p.CursorCol]) {
+				p.CursorCol++
+			}
+		}
 	}
 
-	// Skip whitespace/delimiters
-	for p.CursorCol < len(line) && isDelimiter(line[p.CursorCol]) {
+	// Skip whitespace
+	for p.CursorCol < len(line) && isWhitespace(line[p.CursorCol]) {
 		p.CursorCol++
 	}
 
@@ -353,7 +363,7 @@ func (p *Pane) MoveToNextWord() {
 		p.CursorCol = 0
 		// Skip leading whitespace on new line
 		line = p.Buffer.Lines[p.CursorRow]
-		for p.CursorCol < len(line) && isDelimiter(line[p.CursorCol]) {
+		for p.CursorCol < len(line) && isWhitespace(line[p.CursorCol]) {
 			p.CursorCol++
 		}
 	}
@@ -374,14 +384,24 @@ func (p *Pane) MoveToPrevWord() {
 		p.CursorCol--
 	}
 
-	// Skip whitespace/delimiters backwards
-	for p.CursorCol > 0 && isDelimiter(line[p.CursorCol]) {
+	// Skip whitespace backwards
+	for p.CursorCol > 0 && isWhitespace(line[p.CursorCol]) {
 		p.CursorCol--
 	}
 
-	// Find start of current word
-	for p.CursorCol > 0 && !isDelimiter(line[p.CursorCol-1]) {
-		p.CursorCol--
+	if p.CursorCol < len(line) {
+		ch := line[p.CursorCol]
+		if isWordChar(ch) {
+			// Find start of word
+			for p.CursorCol > 0 && isWordChar(line[p.CursorCol-1]) {
+				p.CursorCol--
+			}
+		} else if !isWhitespace(ch) {
+			// Find start of punctuation group
+			for p.CursorCol > 0 && !isWordChar(line[p.CursorCol-1]) && !isWhitespace(line[p.CursorCol-1]) {
+				p.CursorCol--
+			}
+		}
 	}
 }
 

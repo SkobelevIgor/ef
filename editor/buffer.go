@@ -563,6 +563,34 @@ func (b *Buffer) UnindentRange(startRow, endRow int) {
 	b.ModCount++
 }
 
+// ReindentRange reindents lines in the given range by matching each line's
+// indentation to the line immediately above it. Lines are processed top-to-bottom.
+func (b *Buffer) ReindentRange(startRow, endRow int) {
+	if startRow > endRow {
+		startRow, endRow = endRow, startRow
+	}
+	if startRow < 0 {
+		startRow = 0
+	}
+	if endRow >= len(b.Lines) {
+		endRow = len(b.Lines) - 1
+	}
+
+	for row := startRow; row <= endRow; row++ {
+		var prevIndent []rune
+		if row > 0 && len(b.Lines[row-1]) > 0 {
+			prevIndent = b.getLeadingWhitespace(b.Lines[row-1])
+		}
+		stripped := stripLeadingWhitespace(b.Lines[row])
+		newLine := make([]rune, len(prevIndent)+len(stripped))
+		copy(newLine, prevIndent)
+		copy(newLine[len(prevIndent):], stripped)
+		b.Lines[row] = newLine
+	}
+	b.Modified = true
+	b.ModCount++
+}
+
 // hasContent returns true if a line contains non-whitespace characters
 func hasContent(line []rune) bool {
 	for _, ch := range line {

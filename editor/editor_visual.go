@@ -145,6 +145,15 @@ func (e *Editor) handleVisualMode(ev *tcell.EventKey) bool {
 			e.inputState.Reset()
 			e.scheduleAutoSave()
 
+		// Reindent selection (match each line's indentation to previous line)
+		case '=':
+			startRow, _, endRow, _ := pane.GetSelection()
+			buf.ReindentRange(startRow, endRow)
+			e.mode = ModeNormal
+			pane.ClearSelection()
+			e.inputState.Reset()
+			e.scheduleAutoSave()
+
 		// Paste (replace selection)
 		case 'p', 'P':
 			if len(e.clipboard) > 0 {
