@@ -884,3 +884,30 @@ func TestAdjustScroll_CursorRowBelowScrollOffset(t *testing.T) {
 		t.Errorf("CursorRow %d should be >= ScrollOffset %d after adjust", p.CursorRow, p.ScrollOffset)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestPane_HasActiveWidget
+// ---------------------------------------------------------------------------
+
+func TestPane_HasActiveWidget_Nil(t *testing.T) {
+	p := newTestPane("hello")
+	if p.HasActiveWidget() {
+		t.Error("should return false when Widget is nil")
+	}
+}
+
+func TestPane_HasActiveWidget_Active(t *testing.T) {
+	p := newTestPane("hello")
+	p.Widget = NewWidgetState(WidgetSearch, 0, 0)
+	if !p.HasActiveWidget() {
+		t.Error("should return true when Widget is active")
+	}
+}
+
+func TestPane_HasActiveWidget_Inactive(t *testing.T) {
+	p := newTestPane("hello")
+	p.Widget = &WidgetState{Active: false}
+	if p.HasActiveWidget() {
+		t.Error("should return false when Widget.Active is false")
+	}
+}

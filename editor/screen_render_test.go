@@ -378,10 +378,10 @@ func TestScreen_PostEvent(t *testing.T) {
 func TestRender_WithWidget_Search(t *testing.T) {
 	scr, sim := newTestScreen(40, 10)
 	pane := newTestPane("hello world")
+	pane.Widget = NewWidgetState(WidgetSearch, 0, 0)
+	pane.Widget.SearchSession.Query = "hello"
 	panes := []*Pane{pane}
 	input := NewInputState()
-	input.Widget = NewWidgetState(WidgetSearch, 0, 0)
-	input.Widget.SearchSession.Query = "hello"
 
 	scr.Render(panes, 0, ModeNormal, input, SplitHorizontal)
 
@@ -395,11 +395,11 @@ func TestRender_WithWidget_Search(t *testing.T) {
 func TestRender_WithWidget_FindReplace(t *testing.T) {
 	scr, sim := newTestScreen(40, 10)
 	pane := newTestPane("hello world")
+	pane.Widget = NewWidgetState(WidgetFindReplace, 0, 0)
+	pane.Widget.FindReplaceSession.Query = "hello"
+	pane.Widget.FindReplaceSession.ReplaceText = "world"
 	panes := []*Pane{pane}
 	input := NewInputState()
-	input.Widget = NewWidgetState(WidgetFindReplace, 0, 0)
-	input.Widget.FindReplaceSession.Query = "hello"
-	input.Widget.FindReplaceSession.ReplaceText = "world"
 
 	scr.Render(panes, 0, ModeNormal, input, SplitHorizontal)
 
@@ -418,13 +418,13 @@ func TestRender_WithWidget_FindReplace(t *testing.T) {
 func TestRender_WithWidget_MatchHighlighting(t *testing.T) {
 	scr, _ := newTestScreen(40, 10)
 	pane := newTestPane("hello world hello")
-	panes := []*Pane{pane}
-	input := NewInputState()
 	w := NewWidgetState(WidgetSearch, 0, 0)
 	w.SearchSession.Query = "hello"
 	w.SearchSession.Matches = pane.Buffer.FindAllMatches("hello")
 	w.SearchSession.CurrentIndex = 0
-	input.Widget = w
+	pane.Widget = w
+	panes := []*Pane{pane}
+	input := NewInputState()
 
 	// Should not panic and should render with highlights
 	scr.Render(panes, 0, ModeNormal, input, SplitHorizontal)
@@ -433,12 +433,12 @@ func TestRender_WithWidget_MatchHighlighting(t *testing.T) {
 func TestRender_WithWidget_CursorInFindBar(t *testing.T) {
 	scr, _ := newTestScreen(40, 10)
 	pane := newTestPane("hello world")
-	panes := []*Pane{pane}
-	input := NewInputState()
 	w := NewWidgetState(WidgetSearch, 0, 0)
 	w.SearchSession.Query = "test"
 	w.Focus = FocusFindBar
-	input.Widget = w
+	pane.Widget = w
+	panes := []*Pane{pane}
+	input := NewInputState()
 
 	// Should position cursor in search bar
 	scr.Render(panes, 0, ModeNormal, input, SplitHorizontal)
@@ -447,13 +447,13 @@ func TestRender_WithWidget_CursorInFindBar(t *testing.T) {
 func TestRender_WithWidget_CursorInReplaceBar(t *testing.T) {
 	scr, _ := newTestScreen(40, 10)
 	pane := newTestPane("hello world")
-	panes := []*Pane{pane}
-	input := NewInputState()
 	w := NewWidgetState(WidgetFindReplace, 0, 0)
 	w.FindReplaceSession.Query = "hello"
 	w.FindReplaceSession.ReplaceText = "hi"
 	w.Focus = FocusReplaceBar
-	input.Widget = w
+	pane.Widget = w
+	panes := []*Pane{pane}
+	input := NewInputState()
 
 	// Should position cursor in replace bar
 	scr.Render(panes, 0, ModeNormal, input, SplitHorizontal)
@@ -462,21 +462,43 @@ func TestRender_WithWidget_CursorInReplaceBar(t *testing.T) {
 func TestRender_WithWidget_CursorInEditor(t *testing.T) {
 	scr, _ := newTestScreen(40, 10)
 	pane := newTestPane("hello world")
-	panes := []*Pane{pane}
-	input := NewInputState()
 	w := NewWidgetState(WidgetSearch, 0, 0)
 	w.Focus = FocusEditor
-	input.Widget = w
+	pane.Widget = w
+	panes := []*Pane{pane}
+	input := NewInputState()
 
 	// Should position cursor in editor pane, not bar
 	scr.Render(panes, 0, ModeNormal, input, SplitHorizontal)
 }
 
-func TestRenderWidget_Nil(t *testing.T) {
+func TestRenderWidgetInPane_Nil(t *testing.T) {
 	scr, _ := newTestScreen(40, 10)
-	h := scr.renderWidget(nil, 40)
+	h := scr.renderWidgetInPane(nil, 0, 0, 40)
 	if h != 0 {
 		t.Errorf("nil widget should return 0 height, got %d", h)
+	}
+}
+
+func TestRenderWidgetInPane_AtOffset(t *testing.T) {
+	scr, sim := newTestScreen(80, 24)
+	w := NewWidgetState(WidgetSearch, 0, 0)
+	w.SearchSession.Query = "abc"
+
+	h := scr.renderWidgetInPane(w, 40, 5, 40)
+	if h != 1 {
+		t.Errorf("expected 1 row, got %d", h)
+	}
+
+	// 'a' should be at (40, 5), not (0, 0)
+	ch, _, _, _ := sim.GetContent(40, 5)
+	if ch != 'a' {
+		t.Errorf("expected 'a' at (40,5), got %q", ch)
+	}
+	// (0, 5) should NOT have 'a'
+	ch0, _, _, _ := sim.GetContent(0, 5)
+	if ch0 == 'a' {
+		t.Error("should not render at (0,5)")
 	}
 }
 
@@ -486,7 +508,7 @@ func TestRenderBar_NoMatches(t *testing.T) {
 	session.Query = "xyz"
 	session.NoMatches = true
 
-	rows := scr.renderBar("xyz", SearchBarStyle, SearchBarNoMatchStyle, 0, 40, session, true)
+	rows := scr.renderBar("xyz", SearchBarStyle, SearchBarNoMatchStyle, 0, 0, 40, session, true)
 	if rows != 1 {
 		t.Errorf("expected 1 row, got %d", rows)
 	}
@@ -497,8 +519,91 @@ func TestRenderBar_MultilineWrap(t *testing.T) {
 	session := NewWidgetSession(0, 0)
 	session.Query = "123456789012345678901" // 21 chars at width 20 → wraps
 
-	rows := scr.renderBar(session.Query, SearchBarStyle, SearchBarNoMatchStyle, 0, 20, session, true)
+	rows := scr.renderBar(session.Query, SearchBarStyle, SearchBarNoMatchStyle, 0, 0, 20, session, true)
 	if rows < 2 {
 		t.Errorf("expected wrap to 2+ rows, got %d", rows)
+	}
+}
+
+func TestRenderBar_AtOffset(t *testing.T) {
+	scr, sim := newTestScreen(80, 24)
+	session := NewWidgetSession(0, 0)
+	session.Query = "hi"
+
+	rows := scr.renderBar("hi", SearchBarStyle, SearchBarNoMatchStyle, 20, 3, 40, session, true)
+	if rows != 1 {
+		t.Errorf("expected 1 row, got %d", rows)
+	}
+	// 'h' should be at (20, 3)
+	ch, _, _, _ := sim.GetContent(20, 3)
+	if ch != 'h' {
+		t.Errorf("expected 'h' at (20,3), got %q", ch)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// positionWidgetCursor with position params
+// ---------------------------------------------------------------------------
+
+func TestPositionWidgetCursor_AtOffset(t *testing.T) {
+	scr, sim := newTestScreen(80, 24)
+	w := NewWidgetState(WidgetSearch, 0, 0)
+	w.SearchSession.Query = "abc"
+	w.Focus = FocusFindBar
+
+	scr.positionWidgetCursor(w, 20, 5, 40)
+
+	// Cursor should be at startX + len("abc"), startY + 0 = (23, 5)
+	curX, curY, visible := sim.GetCursor()
+	if !visible {
+		t.Fatal("cursor should be visible")
+	}
+	if curX != 23 || curY != 5 {
+		t.Errorf("cursor = (%d,%d), want (23,5)", curX, curY)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Multi-pane widget rendering
+// ---------------------------------------------------------------------------
+
+func TestRender_TwoPanes_BothWithWidgets(t *testing.T) {
+	scr, sim := newTestScreen(80, 24)
+	pane1 := newTestPane("hello world")
+	pane1.Widget = NewWidgetState(WidgetSearch, 0, 0)
+	pane1.Widget.SearchSession.Query = "hello"
+
+	pane2 := newTestPane("foo bar")
+	pane2.Widget = NewWidgetState(WidgetFindReplace, 0, 0)
+	pane2.Widget.FindReplaceSession.Query = "foo"
+	pane2.Widget.FindReplaceSession.ReplaceText = "baz"
+
+	panes := []*Pane{pane1, pane2}
+	input := NewInputState()
+
+	scr.Render(panes, 0, ModeNormal, input, SplitHorizontal)
+
+	// Pane 1 starts at Y=0, so its widget bar is at row 0
+	// Query "hello" → 'h' at (0, 0)
+	ch0, _, _, _ := sim.GetContent(0, 0)
+	if ch0 != 'h' {
+		t.Errorf("pane1 widget bar: expected 'h' at (0,0), got %q", ch0)
+	}
+
+	// Pane 2: in horizontal split with 24 rows, each pane gets ~11 rows
+	// plus 1 separator. Pane 2 starts at Y = 12 (11 + 1 separator).
+	// Its widget bar renders at the top of its area.
+	// Find "foo" → 'f' at (0, pane2StartY)
+	// We just need to verify that pane2's widget bar is somewhere below pane1
+	found := false
+	for y := 10; y < 24; y++ {
+		ch, _, _, _ := sim.GetContent(0, y)
+		if ch == 'f' {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("pane2 widget bar: expected 'f' from query 'foo' in pane2 area, not found")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v2"
+	"go.uber.org/mock/gomock"
 )
 
 // ---------------------------------------------------------------------------
@@ -19,7 +20,7 @@ func TestOpenSearchWidget_Fresh(t *testing.T) {
 
 	ed.openSearchWidget()
 
-	w := ed.inputState.Widget
+	w := ed.activePane().Widget
 	if w == nil {
 		t.Fatal("Widget should be non-nil after openSearchWidget")
 	}
@@ -48,10 +49,10 @@ func TestOpenSearchWidget_FromInsertMode(t *testing.T) {
 
 	ed.openSearchWidget()
 
-	if ed.inputState.Widget == nil {
+	if ed.activePane().Widget == nil {
 		t.Fatal("Widget should be non-nil from Insert mode")
 	}
-	if ed.inputState.Widget.Kind != WidgetSearch {
+	if ed.activePane().Widget.Kind != WidgetSearch {
 		t.Error("Kind should be WidgetSearch")
 	}
 }
@@ -63,7 +64,7 @@ func TestOpenSearchWidget_FromVisualMode(t *testing.T) {
 
 	ed.openSearchWidget()
 
-	if ed.inputState.Widget == nil {
+	if ed.activePane().Widget == nil {
 		t.Fatal("Widget should be non-nil from Visual mode")
 	}
 }
@@ -74,20 +75,20 @@ func TestOpenSearchWidget_CycleFocus(t *testing.T) {
 	ed := env.Editor
 
 	ed.openSearchWidget()
-	if ed.inputState.Widget.Focus != FocusFindBar {
+	if ed.activePane().Widget.Focus != FocusFindBar {
 		t.Fatal("initial focus should be FocusFindBar")
 	}
 
 	// F4 again → Editor
 	ed.openSearchWidget()
-	if ed.inputState.Widget.Focus != FocusEditor {
-		t.Errorf("second F4: Focus = %d, want FocusEditor", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusEditor {
+		t.Errorf("second F4: Focus = %d, want FocusEditor", ed.activePane().Widget.Focus)
 	}
 
 	// F4 again → back to FindBar
 	ed.openSearchWidget()
-	if ed.inputState.Widget.Focus != FocusFindBar {
-		t.Errorf("third F4: Focus = %d, want FocusFindBar", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusFindBar {
+		t.Errorf("third F4: Focus = %d, want FocusFindBar", ed.activePane().Widget.Focus)
 	}
 }
 
@@ -98,7 +99,7 @@ func TestOpenSearchWidget_SwitchFromFindReplace(t *testing.T) {
 
 	// Open FindReplace first
 	ed.openFindReplaceWidget()
-	w := ed.inputState.Widget
+	w := ed.activePane().Widget
 	if w.Kind != WidgetFindReplace {
 		t.Fatal("should be FindReplace after F3")
 	}
@@ -106,7 +107,7 @@ func TestOpenSearchWidget_SwitchFromFindReplace(t *testing.T) {
 
 	// F4 → switch to Search
 	ed.openSearchWidget()
-	w = ed.inputState.Widget
+	w = ed.activePane().Widget
 	if w.Kind != WidgetSearch {
 		t.Errorf("Kind = %d, want WidgetSearch after F4", w.Kind)
 	}
@@ -139,7 +140,7 @@ func TestOpenFindReplaceWidget_Fresh(t *testing.T) {
 
 	ed.openFindReplaceWidget()
 
-	w := ed.inputState.Widget
+	w := ed.activePane().Widget
 	if w == nil {
 		t.Fatal("Widget should be non-nil")
 	}
@@ -160,21 +161,21 @@ func TestWidgetFindReplace_F3WhenActiveIsNoOp(t *testing.T) {
 	ed := env.Editor
 
 	ed.openFindReplaceWidget()
-	if ed.inputState.Widget.Focus != FocusFindBar {
+	if ed.activePane().Widget.Focus != FocusFindBar {
 		t.Fatal("initial focus should be FocusFindBar")
 	}
 
 	// F3 again → should stay on FocusFindBar (no-op)
 	ed.openFindReplaceWidget()
-	if ed.inputState.Widget.Focus != FocusFindBar {
-		t.Errorf("Focus = %d, want FocusFindBar (no-op)", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusFindBar {
+		t.Errorf("Focus = %d, want FocusFindBar (no-op)", ed.activePane().Widget.Focus)
 	}
 
 	// Manually set to ReplaceBar and press F3 — should stay
-	ed.inputState.Widget.Focus = FocusReplaceBar
+	ed.activePane().Widget.Focus = FocusReplaceBar
 	ed.openFindReplaceWidget()
-	if ed.inputState.Widget.Focus != FocusReplaceBar {
-		t.Errorf("Focus = %d, want FocusReplaceBar (no-op)", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusReplaceBar {
+		t.Errorf("Focus = %d, want FocusReplaceBar (no-op)", ed.activePane().Widget.Focus)
 	}
 }
 
@@ -184,11 +185,11 @@ func TestOpenFindReplaceWidget_SwitchFromSearch(t *testing.T) {
 	ed := env.Editor
 
 	ed.openSearchWidget()
-	w := ed.inputState.Widget
+	w := ed.activePane().Widget
 	w.SearchSession.Query = "hello"
 
 	ed.openFindReplaceWidget()
-	w = ed.inputState.Widget
+	w = ed.activePane().Widget
 	if w.Kind != WidgetFindReplace {
 		t.Errorf("Kind = %d, want WidgetFindReplace", w.Kind)
 	}
@@ -227,7 +228,7 @@ func TestCloseWidget_RestoresAnchor(t *testing.T) {
 
 	ed.closeWidget()
 
-	if ed.inputState.Widget != nil {
+	if ed.activePane().Widget != nil {
 		t.Error("Widget should be nil after closeWidget")
 	}
 	if pane.CursorRow != 1 || pane.CursorCol != 5 {
@@ -248,7 +249,7 @@ func TestCloseWidget_FromFindReplace(t *testing.T) {
 
 	ed.closeWidget()
 
-	if ed.inputState.Widget != nil {
+	if ed.activePane().Widget != nil {
 		t.Error("Widget should be nil after closeWidget")
 	}
 	if pane.CursorRow != 0 || pane.CursorCol != 3 {
@@ -261,10 +262,10 @@ func TestCloseWidget_ClearsBothSessions(t *testing.T) {
 	ed := env.Editor
 
 	ed.openSearchWidget()
-	ed.inputState.Widget.SearchSession.Query = "test"
+	ed.activePane().Widget.SearchSession.Query = "test"
 	ed.closeWidget()
 
-	if ed.inputState.Widget != nil {
+	if ed.activePane().Widget != nil {
 		t.Error("Widget should be nil after close")
 	}
 }
@@ -287,23 +288,23 @@ func TestDualSessions_IndependentState(t *testing.T) {
 
 	// Open F4 search and type query
 	ed.openSearchWidget()
-	ed.inputState.Widget.SearchSession.Query = "hello"
+	ed.activePane().Widget.SearchSession.Query = "hello"
 
 	// Switch to F3
 	ed.openFindReplaceWidget()
-	ed.inputState.Widget.FindReplaceSession.Query = "world"
-	ed.inputState.Widget.FindReplaceSession.ReplaceText = "earth"
+	ed.activePane().Widget.FindReplaceSession.Query = "world"
+	ed.activePane().Widget.FindReplaceSession.ReplaceText = "earth"
 
 	// Switch back to F4
 	ed.openSearchWidget()
-	w := ed.inputState.Widget
+	w := ed.activePane().Widget
 	if w.SearchSession.Query != "hello" {
 		t.Errorf("SearchSession.Query = %q, want 'hello'", w.SearchSession.Query)
 	}
 
 	// Switch back to F3
 	ed.openFindReplaceWidget()
-	w = ed.inputState.Widget
+	w = ed.activePane().Widget
 	if w.FindReplaceSession.Query != "world" {
 		t.Errorf("FindReplaceSession.Query = %q, want 'world'", w.FindReplaceSession.Query)
 	}
@@ -322,11 +323,11 @@ func TestHandleKey_F4OpensSearchWidget(t *testing.T) {
 
 	ed.handleKey(tcell.NewEventKey(tcell.KeyF4, 0, tcell.ModNone))
 
-	if ed.inputState.Widget == nil {
+	if ed.activePane().Widget == nil {
 		t.Fatal("F4 should open widget")
 	}
-	if ed.inputState.Widget.Kind != WidgetSearch {
-		t.Errorf("Kind = %d, want WidgetSearch", ed.inputState.Widget.Kind)
+	if ed.activePane().Widget.Kind != WidgetSearch {
+		t.Errorf("Kind = %d, want WidgetSearch", ed.activePane().Widget.Kind)
 	}
 }
 
@@ -336,11 +337,11 @@ func TestHandleKey_F3OpensFindReplaceWidget(t *testing.T) {
 
 	ed.handleKey(tcell.NewEventKey(tcell.KeyF3, 0, tcell.ModNone))
 
-	if ed.inputState.Widget == nil {
+	if ed.activePane().Widget == nil {
 		t.Fatal("F3 should open widget")
 	}
-	if ed.inputState.Widget.Kind != WidgetFindReplace {
-		t.Errorf("Kind = %d, want WidgetFindReplace", ed.inputState.Widget.Kind)
+	if ed.activePane().Widget.Kind != WidgetFindReplace {
+		t.Errorf("Kind = %d, want WidgetFindReplace", ed.activePane().Widget.Kind)
 	}
 }
 
@@ -360,7 +361,7 @@ func TestWidgetFindBar_TypeBuildsQuery(t *testing.T) {
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'h', tcell.ModNone))
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'e', tcell.ModNone))
 
-	s := ed.inputState.Widget.SearchSession
+	s := ed.activePane().Widget.SearchSession
 	if s.Query != "he" {
 		t.Errorf("Query = %q, want 'he'", s.Query)
 	}
@@ -374,7 +375,7 @@ func TestWidgetFindBar_AutoSearchAt2Chars(t *testing.T) {
 
 	// 1 char: matches found but no navigation
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'h', tcell.ModNone))
-	s := ed.inputState.Widget.SearchSession
+	s := ed.activePane().Widget.SearchSession
 	if len(s.Matches) == 0 {
 		t.Error("1 char: should have matches for highlighting")
 	}
@@ -418,7 +419,7 @@ func TestWidgetFindBar_Backspace(t *testing.T) {
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'e', tcell.ModNone))
 
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyBackspace2, 0, tcell.ModNone))
-	s := ed.inputState.Widget.SearchSession
+	s := ed.activePane().Widget.SearchSession
 	if s.Query != "h" {
 		t.Errorf("after backspace, Query = %q, want 'h'", s.Query)
 	}
@@ -445,7 +446,7 @@ func TestWidgetFindBar_NoMatches(t *testing.T) {
 		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
 	}
 
-	s := ed.inputState.Widget.SearchSession
+	s := ed.activePane().Widget.SearchSession
 	if !s.NoMatches {
 		t.Error("should indicate no matches")
 	}
@@ -463,7 +464,7 @@ func TestWidgetFindBar_Unicode(t *testing.T) {
 		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
 	}
 
-	s := ed.inputState.Widget.SearchSession
+	s := ed.activePane().Widget.SearchSession
 	if s.Query != "日本" {
 		t.Errorf("Query = %q, want '日本'", s.Query)
 	}
@@ -483,7 +484,7 @@ func TestWidgetMode_EscapeFromFindBar(t *testing.T) {
 	ed.openSearchWidget()
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
 
-	if ed.inputState.Widget != nil {
+	if ed.activePane().Widget != nil {
 		t.Error("Escape should close widget")
 	}
 }
@@ -493,11 +494,11 @@ func TestWidgetMode_EscapeFromReplaceBar(t *testing.T) {
 	ed := env.Editor
 
 	ed.openFindReplaceWidget()
-	ed.inputState.Widget.Focus = FocusReplaceBar
+	ed.activePane().Widget.Focus = FocusReplaceBar
 
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
 
-	if ed.inputState.Widget != nil {
+	if ed.activePane().Widget != nil {
 		t.Error("Escape from ReplaceBar should close widget")
 	}
 }
@@ -507,11 +508,11 @@ func TestWidgetMode_EscapeFromEditor(t *testing.T) {
 	ed := env.Editor
 
 	ed.openSearchWidget()
-	ed.inputState.Widget.Focus = FocusEditor
+	ed.activePane().Widget.Focus = FocusEditor
 
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
 
-	if ed.inputState.Widget != nil {
+	if ed.activePane().Widget != nil {
 		t.Error("Escape from Editor should close widget")
 	}
 }
@@ -525,12 +526,12 @@ func TestWidgetReplaceBar_TypeBuildsText(t *testing.T) {
 	ed := env.Editor
 
 	ed.openFindReplaceWidget()
-	ed.inputState.Widget.Focus = FocusReplaceBar
+	ed.activePane().Widget.Focus = FocusReplaceBar
 
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'h', tcell.ModNone))
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'i', tcell.ModNone))
 
-	s := ed.inputState.Widget.FindReplaceSession
+	s := ed.activePane().Widget.FindReplaceSession
 	if s.ReplaceText != "hi" {
 		t.Errorf("ReplaceText = %q, want 'hi'", s.ReplaceText)
 	}
@@ -541,13 +542,13 @@ func TestWidgetReplaceBar_Backspace(t *testing.T) {
 	ed := env.Editor
 
 	ed.openFindReplaceWidget()
-	ed.inputState.Widget.Focus = FocusReplaceBar
+	ed.activePane().Widget.Focus = FocusReplaceBar
 
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'a', tcell.ModNone))
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'b', tcell.ModNone))
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyBackspace2, 0, tcell.ModNone))
 
-	s := ed.inputState.Widget.FindReplaceSession
+	s := ed.activePane().Widget.FindReplaceSession
 	if s.ReplaceText != "a" {
 		t.Errorf("ReplaceText = %q, want 'a'", s.ReplaceText)
 	}
@@ -578,7 +579,7 @@ func TestWidgetSearchMode_EnterConfirms(t *testing.T) {
 	// Enter confirms and switches focus to editor
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 
-	w := ed.inputState.Widget
+	w := ed.activePane().Widget
 	if w.Focus != FocusEditor {
 		t.Errorf("Focus = %d, want FocusEditor after Enter", w.Focus)
 	}
@@ -599,7 +600,7 @@ func TestWidgetEditorFocus_NextPrev(t *testing.T) {
 	// Confirm
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 
-	s := ed.inputState.Widget.SearchSession
+	s := ed.activePane().Widget.SearchSession
 	firstIdx := s.CurrentIndex
 
 	// n → next match
@@ -625,7 +626,7 @@ func TestWidgetEditorFocus_WrapAround(t *testing.T) {
 	}
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 
-	s := ed.inputState.Widget.SearchSession
+	s := ed.activePane().Widget.SearchSession
 	total := len(s.Matches)
 	if total < 3 {
 		t.Fatalf("expected 3+ matches, got %d", total)
@@ -660,8 +661,8 @@ func TestWidgetFindReplace_EnterOnEditorReplaces(t *testing.T) {
 	}
 
 	// Set replace text and move focus to Editor
-	ed.inputState.Widget.FindReplaceSession.ReplaceText = "hi"
-	ed.inputState.Widget.Focus = FocusEditor
+	ed.activePane().Widget.FindReplaceSession.ReplaceText = "hi"
+	ed.activePane().Widget.Focus = FocusEditor
 
 	// Enter on editor replaces current match
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
@@ -673,8 +674,8 @@ func TestWidgetFindReplace_EnterOnEditorReplaces(t *testing.T) {
 	}
 
 	// Focus should stay on editor
-	if ed.inputState.Widget.Focus != FocusEditor {
-		t.Errorf("Focus = %d, want FocusEditor after replace", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusEditor {
+		t.Errorf("Focus = %d, want FocusEditor after replace", ed.activePane().Widget.Focus)
 	}
 }
 
@@ -689,7 +690,7 @@ func TestWidgetFindReplace_EnterInFindBarNoOp(t *testing.T) {
 		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
 	}
 	// Set replace text via session directly
-	ed.inputState.Widget.FindReplaceSession.ReplaceText = "hi"
+	ed.activePane().Widget.FindReplaceSession.ReplaceText = "hi"
 
 	// Enter from FindBar in FR mode should be no-op
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
@@ -699,8 +700,8 @@ func TestWidgetFindReplace_EnterInFindBarNoOp(t *testing.T) {
 		t.Errorf("Enter in FindBar should not replace: %q, want 'hello world hello'", line)
 	}
 	// Focus should stay on FindBar
-	if ed.inputState.Widget.Focus != FocusFindBar {
-		t.Errorf("Focus = %d, want FocusFindBar (no change)", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusFindBar {
+		t.Errorf("Focus = %d, want FocusFindBar (no change)", ed.activePane().Widget.Focus)
 	}
 }
 
@@ -714,7 +715,7 @@ func TestWidgetFindReplace_EnterWithEmptyReplace(t *testing.T) {
 	}
 
 	// Move to editor focus, empty replace text → deletes match
-	ed.inputState.Widget.Focus = FocusEditor
+	ed.activePane().Widget.Focus = FocusEditor
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 
 	line := string(ed.activeBuffer().Lines[0])
@@ -735,8 +736,8 @@ func TestWidgetMode_F3SwitchesDuringSearch(t *testing.T) {
 	// F3 while in search mode
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyF3, 0, tcell.ModNone))
 
-	if ed.inputState.Widget.Kind != WidgetFindReplace {
-		t.Errorf("Kind = %d, want WidgetFindReplace", ed.inputState.Widget.Kind)
+	if ed.activePane().Widget.Kind != WidgetFindReplace {
+		t.Errorf("Kind = %d, want WidgetFindReplace", ed.activePane().Widget.Kind)
 	}
 }
 
@@ -748,8 +749,8 @@ func TestWidgetMode_F4SwitchesDuringFindReplace(t *testing.T) {
 	// F4 while in find-replace mode
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyF4, 0, tcell.ModNone))
 
-	if ed.inputState.Widget.Kind != WidgetSearch {
-		t.Errorf("Kind = %d, want WidgetSearch", ed.inputState.Widget.Kind)
+	if ed.activePane().Widget.Kind != WidgetSearch {
+		t.Errorf("Kind = %d, want WidgetSearch", ed.activePane().Widget.Kind)
 	}
 }
 
@@ -766,26 +767,26 @@ func TestWidgetFindReplace_TabCyclesFocus(t *testing.T) {
 	ed := env.Editor
 
 	ed.openFindReplaceWidget()
-	if ed.inputState.Widget.Focus != FocusFindBar {
+	if ed.activePane().Widget.Focus != FocusFindBar {
 		t.Fatal("initial focus should be FocusFindBar")
 	}
 
 	// Tab → ReplaceBar
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
-	if ed.inputState.Widget.Focus != FocusReplaceBar {
-		t.Errorf("Focus = %d, want FocusReplaceBar", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusReplaceBar {
+		t.Errorf("Focus = %d, want FocusReplaceBar", ed.activePane().Widget.Focus)
 	}
 
 	// Tab → Editor
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
-	if ed.inputState.Widget.Focus != FocusEditor {
-		t.Errorf("Focus = %d, want FocusEditor", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusEditor {
+		t.Errorf("Focus = %d, want FocusEditor", ed.activePane().Widget.Focus)
 	}
 
 	// Tab → back to FindBar
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
-	if ed.inputState.Widget.Focus != FocusFindBar {
-		t.Errorf("Focus = %d, want FocusFindBar", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusFindBar {
+		t.Errorf("Focus = %d, want FocusFindBar", ed.activePane().Widget.Focus)
 	}
 }
 
@@ -794,14 +795,14 @@ func TestWidgetSearch_TabDoesNotCycleFocus(t *testing.T) {
 	ed := env.Editor
 
 	ed.openSearchWidget()
-	if ed.inputState.Widget.Focus != FocusFindBar {
+	if ed.activePane().Widget.Focus != FocusFindBar {
 		t.Fatal("initial focus should be FocusFindBar")
 	}
 
 	// Tab in Search mode should not change focus
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
-	if ed.inputState.Widget.Focus != FocusFindBar {
-		t.Errorf("Focus = %d, want FocusFindBar (Tab is no-op in Search)", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusFindBar {
+		t.Errorf("Focus = %d, want FocusFindBar (Tab is no-op in Search)", ed.activePane().Widget.Focus)
 	}
 }
 
@@ -817,8 +818,8 @@ func TestWidgetFindReplace_EnterInReplaceBarNoOp(t *testing.T) {
 	for _, r := range "hello" {
 		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
 	}
-	ed.inputState.Widget.FindReplaceSession.ReplaceText = "hi"
-	ed.inputState.Widget.Focus = FocusReplaceBar
+	ed.activePane().Widget.FindReplaceSession.ReplaceText = "hi"
+	ed.activePane().Widget.Focus = FocusReplaceBar
 
 	// Enter in ReplaceBar should be no-op
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
@@ -827,8 +828,8 @@ func TestWidgetFindReplace_EnterInReplaceBarNoOp(t *testing.T) {
 	if line != "hello world hello" {
 		t.Errorf("Enter in ReplaceBar should not replace: %q, want 'hello world hello'", line)
 	}
-	if ed.inputState.Widget.Focus != FocusReplaceBar {
-		t.Errorf("Focus = %d, want FocusReplaceBar", ed.inputState.Widget.Focus)
+	if ed.activePane().Widget.Focus != FocusReplaceBar {
+		t.Errorf("Focus = %d, want FocusReplaceBar", ed.activePane().Widget.Focus)
 	}
 }
 
@@ -844,8 +845,8 @@ func TestWidgetFindReplace_RepeatedEnterOnEditor(t *testing.T) {
 	for _, r := range "hello" {
 		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
 	}
-	ed.inputState.Widget.FindReplaceSession.ReplaceText = "hi"
-	ed.inputState.Widget.Focus = FocusEditor
+	ed.activePane().Widget.FindReplaceSession.ReplaceText = "hi"
+	ed.activePane().Widget.Focus = FocusEditor
 
 	// First Enter
 	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
@@ -853,7 +854,7 @@ func TestWidgetFindReplace_RepeatedEnterOnEditor(t *testing.T) {
 	if line != "hi world hello" {
 		t.Errorf("after first replace: %q, want 'hi world hello'", line)
 	}
-	if ed.inputState.Widget.Focus != FocusEditor {
+	if ed.activePane().Widget.Focus != FocusEditor {
 		t.Error("focus should stay on FocusEditor after replace")
 	}
 
@@ -863,7 +864,7 @@ func TestWidgetFindReplace_RepeatedEnterOnEditor(t *testing.T) {
 	if line != "hi world hi" {
 		t.Errorf("after second replace: %q, want 'hi world hi'", line)
 	}
-	if ed.inputState.Widget.Focus != FocusEditor {
+	if ed.activePane().Widget.Focus != FocusEditor {
 		t.Error("focus should stay on FocusEditor after second replace")
 	}
 }
@@ -879,7 +880,7 @@ func TestSwitchToWidget_RefreshesMatches(t *testing.T) {
 
 	// Open search, set query with matches
 	ed.openSearchWidget()
-	session := ed.inputState.Widget.SearchSession
+	session := ed.activePane().Widget.SearchSession
 	session.Query = "hello"
 	session.Matches = buf.FindAllMatches("hello")
 	session.CurrentIndex = 0
@@ -892,8 +893,210 @@ func TestSwitchToWidget_RefreshesMatches(t *testing.T) {
 
 	// Switch back to Search — matches should refresh
 	ed.openSearchWidget()
-	session = ed.inputState.Widget.SearchSession
+	session = ed.activePane().Widget.SearchSession
 	if len(session.Matches) != 1 {
 		t.Errorf("after refresh, expected 1 match, got %d", len(session.Matches))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Multi-pane helper
+// ---------------------------------------------------------------------------
+
+// newTestEditorMultiPane creates an editor with two panes backed by
+// independent buffers for multi-pane widget testing.
+func newTestEditorMultiPane(t *testing.T, lines1, lines2 []string) *testEditorEnv {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+
+	mockScreen := NewMockScreenRenderer(ctrl)
+	mockFW := NewMockFileWatcherService(ctrl)
+	mockCfg := NewMockConfigProvider(ctrl)
+	mockFT := NewMockFileTypeDetector(ctrl)
+
+	mockScreen.EXPECT().Size().Return(80, 24).AnyTimes()
+	mockCfg.EXPECT().GetKeyMappings().Return(map[string]string{}).AnyTimes()
+	mockCfg.EXPECT().GetMaps().Return(map[string]string{}).AnyTimes()
+	mockCfg.EXPECT().GetFileTypeConfig(gomock.Any()).Return(FileTypeConfig{TabStop: 4}).AnyTimes()
+	mockFW.EXPECT().UpdateModTime(gomock.Any()).AnyTimes()
+
+	buf1 := newTestBuffer(lines1...)
+	buf2 := newTestBuffer(lines2...)
+	buf2.Filename = "test2.txt"
+	buffers := map[string]*Buffer{
+		"test.txt":  buf1,
+		"test2.txt": buf2,
+	}
+	panes := []*Pane{NewPane(buf1), NewPane(buf2)}
+
+	deps := EditorDeps{
+		Screen:      mockScreen,
+		FileWatcher: mockFW,
+		Config:      mockCfg,
+		FileTypes:   mockFT,
+	}
+
+	ed := NewEditorWithDeps(deps, buffers, panes, SplitHorizontal)
+	t.Cleanup(func() { ed.stopAutoSave() })
+
+	return &testEditorEnv{
+		Editor:      ed,
+		Ctrl:        ctrl,
+		Screen:      mockScreen,
+		FileWatcher: mockFW,
+		Config:      mockCfg,
+		FileTypes:   mockFT,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Per-pane widget integration tests
+// ---------------------------------------------------------------------------
+
+func TestWidget_PerPane_IndependentSessions(t *testing.T) {
+	env := newTestEditorMultiPane(t,
+		[]string{"hello world"},
+		[]string{"world goodbye"},
+	)
+	ed := env.Editor
+
+	// Pane 0: open search, type "hello"
+	ed.openSearchWidget()
+	for _, r := range "hello" {
+		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+
+	// Switch to pane 1
+	ed.activePaneIdx = 1
+
+	// Pane 1: open search, type "world"
+	ed.openSearchWidget()
+	for _, r := range "world" {
+		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+
+	// Verify pane 1 has "world"
+	w1 := ed.panes[1].Widget
+	if w1 == nil {
+		t.Fatal("pane 1 should have widget")
+	}
+	if w1.SearchSession.Query != "world" {
+		t.Errorf("pane 1 query = %q, want 'world'", w1.SearchSession.Query)
+	}
+
+	// Verify pane 0 still has "hello"
+	w0 := ed.panes[0].Widget
+	if w0 == nil {
+		t.Fatal("pane 0 should have widget")
+	}
+	if w0.SearchSession.Query != "hello" {
+		t.Errorf("pane 0 query = %q, want 'hello'", w0.SearchSession.Query)
+	}
+}
+
+func TestWidget_PerPane_CloseOnlyAffectsActivePane(t *testing.T) {
+	env := newTestEditorMultiPane(t,
+		[]string{"hello world"},
+		[]string{"world goodbye"},
+	)
+	ed := env.Editor
+
+	// Open widget on pane 0
+	ed.openSearchWidget()
+
+	// Switch to pane 1, open widget
+	ed.activePaneIdx = 1
+	ed.openSearchWidget()
+
+	// Close widget on pane 1
+	ed.closeWidget()
+
+	// Pane 1 widget should be nil
+	if ed.panes[1].Widget != nil {
+		t.Error("pane 1 widget should be nil after close")
+	}
+
+	// Pane 0 widget should still be active
+	if !ed.panes[0].HasActiveWidget() {
+		t.Error("pane 0 widget should still be active")
+	}
+}
+
+func TestWidget_PerPane_F3F4OperateOnActivePane(t *testing.T) {
+	env := newTestEditorMultiPane(t,
+		[]string{"hello world"},
+		[]string{"world goodbye"},
+	)
+	ed := env.Editor
+
+	// Pane 0: F3 (FindReplace)
+	ed.handleKey(tcell.NewEventKey(tcell.KeyF3, 0, tcell.ModNone))
+	if ed.panes[0].Widget == nil || ed.panes[0].Widget.Kind != WidgetFindReplace {
+		t.Error("pane 0 should have FindReplace widget")
+	}
+
+	// Switch to pane 1: F4 (Search)
+	ed.activePaneIdx = 1
+	ed.handleKey(tcell.NewEventKey(tcell.KeyF4, 0, tcell.ModNone))
+	if ed.panes[1].Widget == nil || ed.panes[1].Widget.Kind != WidgetSearch {
+		t.Error("pane 1 should have Search widget")
+	}
+
+	// Pane 0 still has FindReplace
+	if ed.panes[0].Widget.Kind != WidgetFindReplace {
+		t.Errorf("pane 0 Kind = %d, want WidgetFindReplace", ed.panes[0].Widget.Kind)
+	}
+}
+
+func TestWidget_PerPane_EscapeOnlyClosesActiveWidget(t *testing.T) {
+	env := newTestEditorMultiPane(t,
+		[]string{"hello world"},
+		[]string{"world goodbye"},
+	)
+	ed := env.Editor
+
+	// Open widgets on both panes
+	ed.openSearchWidget() // pane 0
+	ed.activePaneIdx = 1
+	ed.openSearchWidget() // pane 1
+
+	// Escape on pane 1
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+
+	if ed.panes[1].Widget != nil {
+		t.Error("pane 1 widget should be nil after Escape")
+	}
+	if !ed.panes[0].HasActiveWidget() {
+		t.Error("pane 0 widget should still be active after Escape on pane 1")
+	}
+}
+
+func TestWidget_PerPane_SwitchPanesPreservesWidget(t *testing.T) {
+	env := newTestEditorMultiPane(t,
+		[]string{"hello world"},
+		[]string{"world goodbye"},
+	)
+	ed := env.Editor
+
+	// Open widget on pane 0, type query
+	ed.openSearchWidget()
+	for _, r := range "hello" {
+		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+
+	// Switch to pane 1 via Shift+Tab
+	ed.handleKey(tcell.NewEventKey(tcell.KeyBacktab, 0, tcell.ModNone))
+
+	if ed.activePaneIdx != 1 {
+		t.Fatalf("activePaneIdx = %d, want 1", ed.activePaneIdx)
+	}
+
+	// Pane 0's widget should still be there with query preserved
+	w0 := ed.panes[0].Widget
+	if w0 == nil {
+		t.Fatal("pane 0 widget should still exist after switching")
+	}
+	if w0.SearchSession.Query != "hello" {
+		t.Errorf("pane 0 query = %q, want 'hello'", w0.SearchSession.Query)
 	}
 }

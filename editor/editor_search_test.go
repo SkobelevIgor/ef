@@ -12,16 +12,16 @@ func TestSearchMode_EnterSearchMode(t *testing.T) {
 	env := newTestEditor(t, "hello world", "foo hello bar", "third line")
 	ed := env.Editor
 
-	if ed.inputState.HasActiveWidget() {
+	if ed.activePane().HasActiveWidget() {
 		t.Fatal("Widget should not be active before F4")
 	}
 
 	ed.handleKey(tcell.NewEventKey(tcell.KeyF4, 0, tcell.ModNone))
 
-	if !ed.inputState.HasActiveWidget() {
+	if !ed.activePane().HasActiveWidget() {
 		t.Fatal("Widget should be active after F4")
 	}
-	w := ed.inputState.Widget
+	w := ed.activePane().Widget
 	if w.Kind != WidgetSearch {
 		t.Errorf("Kind = %d, want WidgetSearch", w.Kind)
 	}

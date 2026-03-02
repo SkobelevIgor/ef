@@ -427,7 +427,7 @@ func (e *Editor) handleKey(ev *tcell.EventKey) bool {
 	}
 
 	// Check if widget mode is active - handle widget input first
-	if e.inputState.HasActiveWidget() {
+	if e.activePane().HasActiveWidget() {
 		return e.handleWidgetMode(ev)
 	}
 

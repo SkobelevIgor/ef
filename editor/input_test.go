@@ -130,51 +130,6 @@ func TestInputStatePendingString(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// HasActiveWidget
-// ---------------------------------------------------------------------------
-
-func TestHasActiveWidget_Nil(t *testing.T) {
-	s := NewInputState()
-	if s.HasActiveWidget() {
-		t.Error("should be false when Widget is nil")
-	}
-}
-
-func TestHasActiveWidget_Active(t *testing.T) {
-	s := NewInputState()
-	s.Widget = NewWidgetState(WidgetSearch, 0, 0)
-	if !s.HasActiveWidget() {
-		t.Error("should be true when Widget is active")
-	}
-}
-
-func TestHasActiveWidget_Inactive(t *testing.T) {
-	s := NewInputState()
-	s.Widget = &WidgetState{Active: false}
-	if s.HasActiveWidget() {
-		t.Error("should be false when Widget is inactive")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Reset preserves Widget
-// ---------------------------------------------------------------------------
-
-func TestInputStateReset_PreservesWidget(t *testing.T) {
-	s := NewInputState()
-	w := NewWidgetState(WidgetSearch, 0, 0)
-	s.Widget = w
-	s.Count = 5
-	s.HasCount = true
-
-	s.Reset()
-
-	if s.Widget != w {
-		t.Error("Reset should preserve Widget")
-	}
-}
-
 func TestInputStateSaveLastFind(t *testing.T) {
 	s := NewInputState()
 	s.SaveLastFind('x', true)

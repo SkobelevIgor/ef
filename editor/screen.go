@@ -210,15 +210,13 @@ func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState 
 	s.screen.Clear()
 	width, height := s.screen.Size()
 
-	// Check if widget or legacy search is active
-	widgetActive := inputState.HasActiveWidget()
+	// Legacy search bar is still global (rendered at screen top)
+	activePane := panes[activePaneIdx]
+	widgetActive := activePane.HasActiveWidget()
 	searchActive := !widgetActive && inputState.Search != nil && inputState.Search.Active
 	contentStartY := 0
 
-	if widgetActive {
-		contentStartY = s.renderWidget(inputState.Widget, width)
-		height -= contentStartY
-	} else if searchActive {
+	if searchActive {
 		s.renderSearchBar(inputState.Search, width)
 		contentStartY = 1
 		height--
@@ -240,12 +238,26 @@ func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState 
 		activePaneIdx = 0
 	}
 
-	// Render all panes
+	// Render all panes (each pane renders its own widget bar)
+	activeBarH := 0 // cached widget bar height for active pane
 	for i, layout := range layouts {
 		if layout.PaneIndex >= len(panes) {
 			continue
 		}
 		pane := panes[layout.PaneIndex]
+
+		paneStartY := layout.StartY
+		paneHeight := layout.Height
+
+		// Per-pane widget bar: render at top of this pane's area
+		if pane.HasActiveWidget() {
+			barH := s.renderWidgetInPane(pane.Widget, layout.StartX, paneStartY, layout.Width)
+			paneStartY += barH
+			paneHeight -= barH
+			if i == activePaneIdx {
+				activeBarH = barH
+			}
+		}
 
 		// Adjust scroll for this pane
 		lineNumWidth := getLineNumberWidthFromPane(pane)
@@ -253,7 +265,7 @@ func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState 
 		if textWidth < 1 {
 			textWidth = 1
 		}
-		pane.AdjustScroll(textWidth, layout.Height)
+		pane.AdjustScroll(textWidth, paneHeight)
 
 		// Determine mode for this pane (only active pane shows current mode)
 		paneMode := ModeNormal
@@ -261,45 +273,42 @@ func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState 
 			paneMode = mode
 		}
 
-		// Render the pane with search highlighting
-		if widgetActive {
-			s.renderPaneWithWidget(pane, layout.StartX, layout.StartY, layout.Width, layout.Height, paneMode, inputState.Widget)
+		// Render the pane content below the widget bar
+		if pane.HasActiveWidget() {
+			s.renderPaneWithWidget(pane, layout.StartX, paneStartY, layout.Width, paneHeight, paneMode, pane.Widget)
 		} else {
-			s.renderPaneWithSearch(pane, layout.StartX, layout.StartY, layout.Width, layout.Height, paneMode, inputState.Search)
+			s.renderPaneWithSearch(pane, layout.StartX, paneStartY, layout.Width, paneHeight, paneMode, inputState.Search)
 		}
 
 		// Draw separator after this pane (if not the last pane)
 		if i < len(layouts)-1 {
 			if splitMode == SplitVertical {
-				// Vertical separator to the right of this pane
 				s.renderVerticalSeparator(layout.StartX+layout.Width, layout.StartY, layout.Height)
 			} else {
-				// Horizontal separator below this pane
 				s.renderHorizontalSeparator(layout.StartY+layout.Height, width)
 			}
 		}
 	}
 
 	// Position cursor
-	if widgetActive && inputState.Widget.Focus != FocusEditor {
-		s.positionWidgetCursor(inputState.Widget, width)
+	if widgetActive && activePane.Widget.Focus != FocusEditor {
+		activeLayout := layouts[activePaneIdx]
+		s.positionWidgetCursor(activePane.Widget, activeLayout.StartX, activeLayout.StartY, activeLayout.Width)
 	} else if searchActive && !inputState.Search.Confirmed {
 		cursorX := len(inputState.Search.Query)
 		s.screen.ShowCursor(cursorX, 0)
 	} else if activePaneIdx < len(layouts) && activePaneIdx < len(panes) {
-		// Cursor in active pane
 		activePaneLayout := layouts[activePaneIdx]
 		activePane := panes[activePaneIdx]
-		lineNumWidth := getLineNumberWidthFromPane(activePane)
 
+		lineNumWidth := getLineNumberWidthFromPane(activePane)
 		cursorX, cursorY := getCursorScreenPosFromPane(activePane, activePaneLayout.Width, lineNumWidth)
 		cursorX += activePaneLayout.StartX
-		cursorY += activePaneLayout.StartY
+		cursorY += activePaneLayout.StartY + activeBarH
 		s.screen.ShowCursor(cursorX, cursorY)
 
 		// Render autocomplete dropdown if active (constrained to pane)
 		if inputState.Autocomplete != nil && inputState.Autocomplete.Active {
-			// Calculate max Y for autocomplete (bottom of active pane)
 			maxY := activePaneLayout.StartY + activePaneLayout.Height
 			s.renderAutocomplete(inputState.Autocomplete, cursorX, cursorY, maxY)
 		}
@@ -348,8 +357,8 @@ func (s *Screen) renderSearchBar(search *SearchState, width int) {
 	}
 }
 
-// renderWidget renders the widget bars and returns total height consumed
-func (s *Screen) renderWidget(w *WidgetState, width int) int {
+// renderWidgetInPane renders widget bars at the given pane position and returns height consumed
+func (s *Screen) renderWidgetInPane(w *WidgetState, startX, startY, width int) int {
 	if w == nil {
 		return 0
 	}
@@ -363,14 +372,14 @@ func (s *Screen) renderWidget(w *WidgetState, width int) int {
 	case WidgetSearch:
 		row += s.renderBar(session.Query,
 			SearchBarStyle, SearchBarNoMatchStyle,
-			row, width, session, w.Focus == FocusFindBar)
+			startX, startY+row, width, session, w.Focus == FocusFindBar)
 	case WidgetFindReplace:
 		row += s.renderBar(session.Query,
 			SearchBarStyle, SearchBarNoMatchStyle,
-			row, width, session, w.Focus == FocusFindBar)
+			startX, startY+row, width, session, w.Focus == FocusFindBar)
 		row += s.renderBar(session.ReplaceText,
 			ReplaceBarStyle, ReplaceBarNoMatchStyle,
-			row, width, session, w.Focus == FocusReplaceBar)
+			startX, startY+row, width, session, w.Focus == FocusReplaceBar)
 	}
 	return row
 }
@@ -379,7 +388,7 @@ func (s *Screen) renderWidget(w *WidgetState, width int) int {
 func (s *Screen) renderBar(
 	text string,
 	style, noMatchStyle tcell.Style,
-	startRow, width int,
+	startX, startY, width int,
 	session *WidgetSession,
 	isFocused bool,
 ) int {
@@ -387,21 +396,21 @@ func (s *Screen) renderBar(
 
 	// Clear all rows for this bar
 	for r := 0; r < rows; r++ {
-		for x := 0; x < width; x++ {
-			s.screen.SetContent(x, startRow+r, ' ', nil, style)
+		for col := 0; col < width; col++ {
+			s.screen.SetContent(startX+col, startY+r, ' ', nil, style)
 		}
 	}
 
 	// Draw text with wrapping
 	x := 0
-	y := startRow
+	y := 0
 	for _, ch := range text {
 		if x >= width {
 			x = 0
 			y++
 		}
-		if y < startRow+rows {
-			s.screen.SetContent(x, y, ch, nil, style)
+		if y < rows {
+			s.screen.SetContent(startX+x, startY+y, ch, nil, style)
 			x++
 		}
 	}
@@ -414,8 +423,8 @@ func (s *Screen) renderBar(
 				x = 0
 				y++
 			}
-			if y < startRow+rows {
-				s.screen.SetContent(x, y, ch, nil, noMatchStyle)
+			if y < rows {
+				s.screen.SetContent(startX+x, startY+y, ch, nil, noMatchStyle)
 				x++
 			}
 		}
@@ -425,8 +434,8 @@ func (s *Screen) renderBar(
 			if x >= width {
 				break
 			}
-			if y < startRow+rows {
-				s.screen.SetContent(x, y, ch, nil, style)
+			if y < rows {
+				s.screen.SetContent(startX+x, startY+y, ch, nil, style)
 				x++
 			}
 		}
@@ -436,7 +445,7 @@ func (s *Screen) renderBar(
 }
 
 // positionWidgetCursor places the terminal cursor in the active bar
-func (s *Screen) positionWidgetCursor(w *WidgetState, width int) {
+func (s *Screen) positionWidgetCursor(w *WidgetState, startX, startY, width int) {
 	session := w.CurrentSession()
 	if session == nil {
 		return
@@ -458,11 +467,11 @@ func (s *Screen) positionWidgetCursor(w *WidgetState, width int) {
 
 	textLen := len([]rune(text))
 	if width <= 0 {
-		s.screen.ShowCursor(0, rowOffset)
+		s.screen.ShowCursor(startX, startY+rowOffset)
 		return
 	}
-	cursorY := rowOffset + textLen/width
-	cursorX := textLen % width
+	cursorY := startY + rowOffset + textLen/width
+	cursorX := startX + textLen%width
 	s.screen.ShowCursor(cursorX, cursorY)
 }
 

@@ -4,7 +4,7 @@ import "github.com/gdamore/tcell/v2"
 
 // openSearchWidget handles F4: open Search widget or cycle focus
 func (e *Editor) openSearchWidget() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	if w == nil {
 		e.createWidget(WidgetSearch)
 		return
@@ -19,7 +19,7 @@ func (e *Editor) openSearchWidget() {
 
 // openFindReplaceWidget handles F3: open FR widget or switch to it
 func (e *Editor) openFindReplaceWidget() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	if w == nil {
 		e.createWidget(WidgetFindReplace)
 		return
@@ -36,12 +36,12 @@ func (e *Editor) openFindReplaceWidget() {
 func (e *Editor) createWidget(kind WidgetKind) {
 	pane := e.activePane()
 	w := NewWidgetState(kind, pane.CursorRow, pane.CursorCol)
-	e.inputState.Widget = w
+	pane.Widget = w
 }
 
 // cycleFocusSearch toggles: FindBar → Editor → FindBar
 func (e *Editor) cycleFocusSearch() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	switch w.Focus {
 	case FocusFindBar:
 		w.Focus = FocusEditor
@@ -52,7 +52,7 @@ func (e *Editor) cycleFocusSearch() {
 
 // cycleFocusFindReplace cycles: FindBar → ReplaceBar → Editor → FindBar
 func (e *Editor) cycleFocusFindReplace() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	switch w.Focus {
 	case FocusFindBar:
 		w.Focus = FocusReplaceBar
@@ -65,7 +65,7 @@ func (e *Editor) cycleFocusFindReplace() {
 
 // switchToWidget switches the active kind, preserving both sessions
 func (e *Editor) switchToWidget(kind WidgetKind) {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	pane := e.activePane()
 
 	// Save current session's cursor
@@ -130,7 +130,7 @@ func (e *Editor) refreshSessionMatches(s *WidgetSession) {
 
 // handleWidgetMode dispatches key events when widget is active
 func (e *Editor) handleWidgetMode(ev *tcell.EventKey) bool {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	if w == nil {
 		return false
 	}
@@ -167,7 +167,7 @@ func (e *Editor) handleWidgetMode(ev *tcell.EventKey) bool {
 
 // handleWidgetFindBarKey handles input in the Find bar
 func (e *Editor) handleWidgetFindBarKey(ev *tcell.EventKey) bool {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	session := w.CurrentSession()
 	if session == nil {
 		return false
@@ -197,7 +197,7 @@ func (e *Editor) handleWidgetFindBarKey(ev *tcell.EventKey) bool {
 
 // handleWidgetReplaceBarKey handles input in the Replace bar
 func (e *Editor) handleWidgetReplaceBarKey(ev *tcell.EventKey) bool {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	session := w.CurrentSession()
 	if session == nil {
 		return false
@@ -219,7 +219,7 @@ func (e *Editor) handleWidgetReplaceBarKey(ev *tcell.EventKey) bool {
 
 // handleWidgetEditorKey handles keys when focus is on editor
 func (e *Editor) handleWidgetEditorKey(ev *tcell.EventKey) bool {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	switch ev.Key() {
 	case tcell.KeyEnter:
 		if w.Kind == WidgetFindReplace {
@@ -242,7 +242,7 @@ func (e *Editor) handleWidgetEditorKey(ev *tcell.EventKey) bool {
 
 // updateWidgetMatches recalculates matches for the current session
 func (e *Editor) updateWidgetMatches() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	session := w.CurrentSession()
 	if session == nil {
 		return
@@ -273,7 +273,7 @@ func (e *Editor) updateWidgetMatches() {
 
 // widgetNavigateToMatch finds and moves to the first match after position
 func (e *Editor) widgetNavigateToMatch(row, col int) {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	session := w.CurrentSession()
 	if session == nil || len(session.Matches) == 0 {
 		return
@@ -290,7 +290,7 @@ func (e *Editor) widgetNavigateToMatch(row, col int) {
 
 // widgetNavigateToCurrentMatch moves cursor to the current match
 func (e *Editor) widgetNavigateToCurrentMatch() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	session := w.CurrentSession()
 	if session == nil {
 		return
@@ -306,7 +306,7 @@ func (e *Editor) widgetNavigateToCurrentMatch() {
 
 // widgetNextMatch moves to the next match (wrapping)
 func (e *Editor) widgetNextMatch() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	session := w.CurrentSession()
 	if session == nil || len(session.Matches) == 0 {
 		return
@@ -317,7 +317,7 @@ func (e *Editor) widgetNextMatch() {
 
 // widgetPrevMatch moves to the previous match (wrapping)
 func (e *Editor) widgetPrevMatch() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	session := w.CurrentSession()
 	if session == nil || len(session.Matches) == 0 {
 		return
@@ -331,7 +331,7 @@ func (e *Editor) widgetPrevMatch() {
 
 // widgetReplaceCurrentMatch replaces the current match and advances
 func (e *Editor) widgetReplaceCurrentMatch() {
-	w := e.inputState.Widget
+	w := e.activePane().Widget
 	session := w.CurrentSession()
 	if session == nil {
 		return
@@ -389,12 +389,12 @@ func (e *Editor) widgetReplaceCurrentMatch() {
 
 // closeWidget restores anchor cursor and clears widget
 func (e *Editor) closeWidget() {
-	w := e.inputState.Widget
+	pane := e.activePane()
+	w := pane.Widget
 	if w == nil {
 		return
 	}
-	pane := e.activePane()
 	pane.CursorRow = w.AnchorRow
 	pane.CursorCol = w.AnchorCol
-	e.inputState.Widget = nil
+	pane.Widget = nil
 }

@@ -16,6 +16,14 @@ type Pane struct {
 	SelectionActive   bool
 	SelectionStartRow int
 	SelectionStartCol int
+
+	// Per-pane widget state (find/replace scoped to this pane)
+	Widget *WidgetState
+}
+
+// HasActiveWidget returns true if this pane has an active widget
+func (p *Pane) HasActiveWidget() bool {
+	return p.Widget != nil && p.Widget.Active
 }
 
 // NewPane creates a new pane viewing the given buffer
