@@ -6,26 +6,27 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// TestSearchMode_EnterSearchMode verifies that F4 activates search mode and
-// sets Search to a non-nil, Active state.
+// TestSearchMode_EnterSearchMode verifies that F4 activates the search widget
+// with a non-nil, Active Widget state.
 func TestSearchMode_EnterSearchMode(t *testing.T) {
 	env := newTestEditor(t, "hello world", "foo hello bar", "third line")
 	ed := env.Editor
 
-	if ed.inputState.Search != nil {
-		t.Fatal("Search state should be nil before entering search mode")
+	if ed.inputState.HasActiveWidget() {
+		t.Fatal("Widget should not be active before F4")
 	}
 
 	ed.handleKey(tcell.NewEventKey(tcell.KeyF4, 0, tcell.ModNone))
 
-	if ed.inputState.Search == nil {
-		t.Fatal("Search state should be non-nil after F4")
+	if !ed.inputState.HasActiveWidget() {
+		t.Fatal("Widget should be active after F4")
 	}
-	if !ed.inputState.Search.Active {
-		t.Error("Search.Active should be true after entering search mode")
+	w := ed.inputState.Widget
+	if w.Kind != WidgetSearch {
+		t.Errorf("Kind = %d, want WidgetSearch", w.Kind)
 	}
-	if ed.inputState.Search.Query != "" {
-		t.Errorf("Search.Query should be empty on fresh enter, got %q", ed.inputState.Search.Query)
+	if w.SearchSession.Query != "" {
+		t.Errorf("Query should be empty on fresh enter, got %q", w.SearchSession.Query)
 	}
 }
 

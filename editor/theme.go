@@ -17,9 +17,13 @@ var (
 	InsertLineNumStyle = tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack).Bold(true)
 	VisualLineNumStyle = tcell.StyleDefault.Background(tcell.ColorPurple).Foreground(tcell.ColorWhite).Bold(true)
 
-	// Search bar
+	// Search bar (Find row)
 	SearchBarStyle         = tcell.StyleDefault.Background(tcell.ColorDarkBlue).Foreground(tcell.ColorWhite)
 	SearchBarNoMatchStyle  = tcell.StyleDefault.Background(tcell.ColorDarkBlue).Foreground(tcell.ColorRed)
+
+	// Replace bar (Replace row)
+	ReplaceBarStyle        = tcell.StyleDefault.Background(tcell.ColorDarkGreen).Foreground(tcell.ColorWhite)
+	ReplaceBarNoMatchStyle = tcell.StyleDefault.Background(tcell.ColorDarkGreen).Foreground(tcell.ColorRed)
 
 	// Autocomplete dropdown
 	AutocompleteNormalStyle   = tcell.StyleDefault.Background(tcell.ColorPurple).Foreground(tcell.ColorBlack)

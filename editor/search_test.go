@@ -4,31 +4,6 @@ import (
 	"testing"
 )
 
-func TestParseQuery(t *testing.T) {
-	tests := []struct {
-		input       string
-		wantQuery   string
-		wantReplace string
-		wantIsRepl  bool
-	}{
-		{"hello", "hello", "", false},
-		{"replace::foo::bar", "foo", "bar", true},
-		{"replace::foo", "replace::foo", "", false}, // missing second ::
-		{"replace::", "replace::", "", false},        // empty search
-		{"", "", "", false},
-		{"replace::a::b", "a", "b", true},
-		{"replace::::b", "", "b", true}, // empty search term
-	}
-
-	for _, tt := range tests {
-		q, r, isRepl := ParseQuery(tt.input)
-		if q != tt.wantQuery || r != tt.wantReplace || isRepl != tt.wantIsRepl {
-			t.Errorf("ParseQuery(%q) = (%q, %q, %v), want (%q, %q, %v)",
-				tt.input, q, r, isRepl, tt.wantQuery, tt.wantReplace, tt.wantIsRepl)
-		}
-	}
-}
-
 func TestFindFirstMatchAfterCursor(t *testing.T) {
 	matches := []SearchMatch{
 		{Row: 0, Col: 5, Length: 3},

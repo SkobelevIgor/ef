@@ -113,16 +113,6 @@ func (e *Editor) confirmSearch() {
 		return
 	}
 
-	// Parse for replace syntax
-	query, replacement, isReplace := ParseQuery(search.Query)
-	if isReplace {
-		search.Query = query
-		search.IsReplaceMode = true
-		search.ReplaceText = replacement
-		// Recalculate matches with the actual search query
-		e.updateSearchMatches()
-	}
-
 	search.Confirmed = true
 
 	// Navigate to first match after CursorZero

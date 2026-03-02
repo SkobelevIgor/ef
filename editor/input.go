@@ -22,8 +22,11 @@ type InputState struct {
 	// Pending operator for commands like dd, yy, dw, etc.
 	PendingOperator rune
 
-	// Search mode state
+	// Search mode state (legacy — replaced by Widget)
 	Search *SearchState
+
+	// Widget state (new find/replace system)
+	Widget *WidgetState
 
 	// Autocomplete state (nil when not active)
 	Autocomplete *AutocompleteState
@@ -49,6 +52,11 @@ func (s *InputState) Reset() {
 	s.PendingOperator = 0
 	s.PendingMark = false
 	s.PendingJumpToMark = false
+}
+
+// HasActiveWidget returns true if the widget system is active
+func (s *InputState) HasActiveWidget() bool {
+	return s.Widget != nil && s.Widget.Active
 }
 
 // GetCount returns the count, defaulting to 1 if not set

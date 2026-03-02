@@ -210,14 +210,18 @@ func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState 
 	s.screen.Clear()
 	width, height := s.screen.Size()
 
-	// Check if search is active
-	searchActive := inputState.Search != nil && inputState.Search.Active
+	// Check if widget or legacy search is active
+	widgetActive := inputState.HasActiveWidget()
+	searchActive := !widgetActive && inputState.Search != nil && inputState.Search.Active
 	contentStartY := 0
 
-	if searchActive {
+	if widgetActive {
+		contentStartY = s.renderWidget(inputState.Widget, width)
+		height -= contentStartY
+	} else if searchActive {
 		s.renderSearchBar(inputState.Search, width)
 		contentStartY = 1
-		height-- // Reduce available height for content
+		height--
 	}
 
 	// Calculate pane layout based on split mode
@@ -257,8 +261,12 @@ func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState 
 			paneMode = mode
 		}
 
-		// Render the pane
-		s.renderPaneWithSearch(pane, layout.StartX, layout.StartY, layout.Width, layout.Height, paneMode, inputState.Search)
+		// Render the pane with search highlighting
+		if widgetActive {
+			s.renderPaneWithWidget(pane, layout.StartX, layout.StartY, layout.Width, layout.Height, paneMode, inputState.Widget)
+		} else {
+			s.renderPaneWithSearch(pane, layout.StartX, layout.StartY, layout.Width, layout.Height, paneMode, inputState.Search)
+		}
 
 		// Draw separator after this pane (if not the last pane)
 		if i < len(layouts)-1 {
@@ -273,13 +281,10 @@ func (s *Screen) Render(panes []*Pane, activePaneIdx int, mode Mode, inputState 
 	}
 
 	// Position cursor
-	if searchActive && !inputState.Search.Confirmed {
-		// Cursor in search bar at end of query
-		prompt := "Search: "
-		if inputState.Search.IsReplaceMode {
-			prompt = "Replace: "
-		}
-		cursorX := len(prompt) + len(inputState.Search.Query)
+	if widgetActive && inputState.Widget.Focus != FocusEditor {
+		s.positionWidgetCursor(inputState.Widget, width)
+	} else if searchActive && !inputState.Search.Confirmed {
+		cursorX := len(inputState.Search.Query)
 		s.screen.ShowCursor(cursorX, 0)
 	} else if activePaneIdx < len(layouts) && activePaneIdx < len(panes) {
 		// Cursor in active pane
@@ -312,22 +317,8 @@ func (s *Screen) renderSearchBar(search *SearchState, width int) {
 		s.screen.SetContent(x, 0, ' ', nil, style)
 	}
 
-	// Determine prompt text
-	prompt := "Search: "
-	if search.IsReplaceMode {
-		prompt = "Replace: "
-	}
-
-	// Draw prompt
-	x := 0
-	for _, ch := range prompt {
-		if x < width {
-			s.screen.SetContent(x, 0, ch, nil, style)
-			x++
-		}
-	}
-
 	// Draw query text
+	x := 0
 	for _, ch := range search.Query {
 		if x < width {
 			s.screen.SetContent(x, 0, ch, nil, style)
@@ -357,6 +348,140 @@ func (s *Screen) renderSearchBar(search *SearchState, width int) {
 	}
 }
 
+// renderWidget renders the widget bars and returns total height consumed
+func (s *Screen) renderWidget(w *WidgetState, width int) int {
+	if w == nil {
+		return 0
+	}
+	session := w.CurrentSession()
+	if session == nil {
+		return 0
+	}
+	row := 0
+
+	switch w.Kind {
+	case WidgetSearch:
+		row += s.renderBar(session.Query,
+			SearchBarStyle, SearchBarNoMatchStyle,
+			row, width, session, w.Focus == FocusFindBar)
+	case WidgetFindReplace:
+		row += s.renderBar(session.Query,
+			SearchBarStyle, SearchBarNoMatchStyle,
+			row, width, session, w.Focus == FocusFindBar)
+		row += s.renderBar(session.ReplaceText,
+			ReplaceBarStyle, ReplaceBarNoMatchStyle,
+			row, width, session, w.Focus == FocusReplaceBar)
+	}
+	return row
+}
+
+// renderBar renders a single bar and returns the number of rows consumed
+func (s *Screen) renderBar(
+	text string,
+	style, noMatchStyle tcell.Style,
+	startRow, width int,
+	session *WidgetSession,
+	isFocused bool,
+) int {
+	rows := CalculateBarRows(text, width)
+
+	// Clear all rows for this bar
+	for r := 0; r < rows; r++ {
+		for x := 0; x < width; x++ {
+			s.screen.SetContent(x, startRow+r, ' ', nil, style)
+		}
+	}
+
+	// Draw text with wrapping
+	x := 0
+	y := startRow
+	for _, ch := range text {
+		if x >= width {
+			x = 0
+			y++
+		}
+		if y < startRow+rows {
+			s.screen.SetContent(x, y, ch, nil, style)
+			x++
+		}
+	}
+
+	// Show match info or "No matches" after text
+	if session != nil && session.NoMatches && session.Query != "" {
+		feedback := " (No matches)"
+		for _, ch := range feedback {
+			if x >= width {
+				x = 0
+				y++
+			}
+			if y < startRow+rows {
+				s.screen.SetContent(x, y, ch, nil, noMatchStyle)
+				x++
+			}
+		}
+	} else if session != nil && len(session.Matches) > 0 && isFocused {
+		matchInfo := fmt.Sprintf(" [%d/%d]", session.CurrentIndex+1, len(session.Matches))
+		for _, ch := range matchInfo {
+			if x >= width {
+				break
+			}
+			if y < startRow+rows {
+				s.screen.SetContent(x, y, ch, nil, style)
+				x++
+			}
+		}
+	}
+
+	return rows
+}
+
+// positionWidgetCursor places the terminal cursor in the active bar
+func (s *Screen) positionWidgetCursor(w *WidgetState, width int) {
+	session := w.CurrentSession()
+	if session == nil {
+		return
+	}
+
+	var text string
+	var rowOffset int
+
+	switch w.Focus {
+	case FocusFindBar:
+		text = session.Query
+		rowOffset = 0
+	case FocusReplaceBar:
+		text = session.ReplaceText
+		rowOffset = CalculateBarRows(session.Query, width)
+	default:
+		return
+	}
+
+	textLen := len([]rune(text))
+	if width <= 0 {
+		s.screen.ShowCursor(0, rowOffset)
+		return
+	}
+	cursorY := rowOffset + textLen/width
+	cursorX := textLen % width
+	s.screen.ShowCursor(cursorX, cursorY)
+}
+
+// renderPaneWithWidget draws a pane with widget-based match highlighting
+func (s *Screen) renderPaneWithWidget(
+	pane *Pane, startX, startY, width, height int,
+	mode Mode, widget *WidgetState,
+) {
+	var matches []SearchMatch
+	currentIndex := -1
+	if widget != nil {
+		if session := widget.CurrentSession(); session != nil {
+			matches = session.Matches
+			currentIndex = session.CurrentIndex
+		}
+	}
+	s.renderPaneContent(pane, startX, startY, width, height, mode, matches, currentIndex)
+}
+
 // lineNumberWidth calculates the width needed for line numbers
 func lineNumberWidth(totalLines int) int {
 	width := 1
@@ -370,18 +495,32 @@ func lineNumberWidth(totalLines int) int {
 	return width + 1 // +1 for space after number
 }
 
-// renderPaneWithSearch draws a pane with optional search match highlighting
+// renderPaneWithSearch draws a pane with optional legacy search highlighting
 func (s *Screen) renderPaneWithSearch(pane *Pane, startX, startY, width, height int, mode Mode, search *SearchState) {
+	var matches []SearchMatch
+	currentIndex := -1
+	if search != nil && search.Active {
+		matches = search.Matches
+		currentIndex = search.CurrentIndex
+	}
+	s.renderPaneContent(pane, startX, startY, width, height, mode, matches, currentIndex)
+}
+
+// renderPaneContent draws a pane with optional match highlighting
+func (s *Screen) renderPaneContent(
+	pane *Pane, startX, startY, width, height int,
+	mode Mode, matches []SearchMatch, currentIndex int,
+) {
 	buf := pane.Buffer
-	lineNumWidth := lineNumberWidth(len(buf.Lines))
+	lnWidth := lineNumberWidth(len(buf.Lines))
 	lineNumStyle := LineNumStyle
 	wrapStyle := WrapIndicStyle
 	selectionStyle := SelectionStyle
-	searchMatchStyle := SearchMatchStyle
-	currentMatchStyle := CurrentMatchStyle
-	currentLineNumStyle := CurrentLineNumStyle(mode)
+	smStyle := SearchMatchStyle
+	cmStyle := CurrentMatchStyle
+	curLNStyle := CurrentLineNumStyle(mode)
 
-	textWidth := width - lineNumWidth
+	textWidth := width - lnWidth
 	if textWidth < 1 {
 		textWidth = 1
 	}
@@ -391,106 +530,92 @@ func (s *Screen) renderPaneWithSearch(pane *Pane, startX, startY, width, height 
 		line := buf.Lines[lineIdx]
 		isCurrentLine := lineIdx == pane.CursorRow
 
-		// Calculate relative line number
 		var lineNum int
-		var lineNumStyleToUse tcell.Style
+		var lnStyle tcell.Style
 		if isCurrentLine {
-			lineNum = lineIdx + 1 // Absolute line number for current line
-			lineNumStyleToUse = currentLineNumStyle
+			lineNum = lineIdx + 1
+			lnStyle = curLNStyle
 		} else {
 			lineNum = lineIdx - pane.CursorRow
 			if lineNum < 0 {
 				lineNum = -lineNum
 			}
-			lineNumStyleToUse = lineNumStyle
+			lnStyle = lineNumStyle
 		}
 
-		// Handle empty lines
 		if len(line) == 0 {
-			// Draw line number
-			numStr := fmt.Sprintf("%*d ", lineNumWidth-1, lineNum)
+			numStr := fmt.Sprintf("%*d ", lnWidth-1, lineNum)
 			for i, ch := range numStr {
 				if startX+i < startX+width {
-					s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lineNumStyleToUse)
+					s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lnStyle)
 				}
 			}
 			screenRow++
 			continue
 		}
 
-		// Draw line with wrapping
 		charIdx := 0
 		isFirstWrap := true
 		for charIdx < len(line) && screenRow < height {
-			// Draw line number or wrap indicator
 			if isFirstWrap {
-				numStr := fmt.Sprintf("%*d ", lineNumWidth-1, lineNum)
+				numStr := fmt.Sprintf("%*d ", lnWidth-1, lineNum)
 				for i, ch := range numStr {
 					if startX+i < startX+width {
-						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lineNumStyleToUse)
+						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, lnStyle)
 					}
 				}
 				isFirstWrap = false
 			} else {
-				// Draw wrap continuation indicator
-				wrapIndicator := fmt.Sprintf("%*s ", lineNumWidth-1, "↪")
-				wrapStyleToUse := wrapStyle
+				wrapIndicator := fmt.Sprintf("%*s ", lnWidth-1, "↪")
+				ws := wrapStyle
 				if isCurrentLine {
-					wrapStyleToUse = currentLineNumStyle
+					ws = curLNStyle
 				}
 				for i, ch := range wrapIndicator {
 					if startX+i < startX+width {
-						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, wrapStyleToUse)
+						s.screen.SetContent(startX+i, startY+screenRow, ch, nil, ws)
 					}
 				}
 			}
 
-			// Get syntax highlighting tokens for this line (if available)
 			var tokens []Token
 			if buf.HighlightCache != nil {
 				tokens = buf.HighlightCache.GetTokens(lineIdx, line, buf.Lines)
 			}
 
-			// Get tab stop width from buffer config
 			tabStop := buf.Config.TabStop
 			if tabStop <= 0 {
 				tabStop = DefaultTabStop
 			}
 
-			// Draw text for this screen row
-			// col = visual column on screen, charIdx = index into line runes
-			textStart := startX + lineNumWidth
+			textStart := startX + lnWidth
 			col := 0
 			for col < textWidth && charIdx < len(line) {
 				ch := line[charIdx]
 				charStyle := tcell.StyleDefault
 
-				// Apply syntax highlighting
 				if len(tokens) > 0 {
 					if style, ok := GetStyleAt(tokens, charIdx); ok {
 						charStyle = style
 					}
 				}
 
-				// Selection takes precedence over syntax highlighting (use pane's selection)
 				if pane.IsInSelection(lineIdx, charIdx) {
 					charStyle = selectionStyle
 				}
 
-				// Search match highlighting takes highest precedence
-				if search != nil && search.Active && len(search.Matches) > 0 {
-					matchIdx, inMatch := isInSearchMatch(search, lineIdx, charIdx)
+				if len(matches) > 0 {
+					mIdx, inMatch := isInMatchSlice(matches, lineIdx, charIdx)
 					if inMatch {
-						if matchIdx == search.CurrentIndex {
-							charStyle = currentMatchStyle
+						if mIdx == currentIndex {
+							charStyle = cmStyle
 						} else {
-							charStyle = searchMatchStyle
+							charStyle = smStyle
 						}
 					}
 				}
 
 				if ch == '\t' {
-					// Expand tab to spaces up to next tab stop
 					spacesToNextStop := tabStop - (col % tabStop)
 					for i := 0; i < spacesToNextStop && col < textWidth; i++ {
 						s.screen.SetContent(textStart+col, startY+screenRow, ' ', nil, charStyle)
@@ -507,10 +632,14 @@ func (s *Screen) renderPaneWithSearch(pane *Pane, startX, startY, width, height 
 	}
 }
 
-// isInSearchMatch checks if a position is within any search match
-// Returns the match index and whether position is in a match
+// isInSearchMatch checks if a position is within any search match (legacy)
 func isInSearchMatch(search *SearchState, row, col int) (int, bool) {
-	for i, match := range search.Matches {
+	return isInMatchSlice(search.Matches, row, col)
+}
+
+// isInMatchSlice checks if a position is within any match in the slice
+func isInMatchSlice(matches []SearchMatch, row, col int) (int, bool) {
+	for i, match := range matches {
 		if match.Row == row && col >= match.Col && col < match.Col+match.Length {
 			return i, true
 		}

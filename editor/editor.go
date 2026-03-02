@@ -418,12 +418,20 @@ func (e *Editor) handleKey(ev *tcell.EventKey) bool {
 	case tcell.KeyCtrlZ:
 		e.suspend()
 		return false
+	case tcell.KeyF3:
+		e.openFindReplaceWidget()
+		return false
 	case tcell.KeyF4:
-		e.enterSearchMode()
+		e.openSearchWidget()
 		return false
 	}
 
-	// Check if search mode is active - handle search input first
+	// Check if widget mode is active - handle widget input first
+	if e.inputState.HasActiveWidget() {
+		return e.handleWidgetMode(ev)
+	}
+
+	// Check if legacy search mode is active
 	if e.inputState.Search != nil && e.inputState.Search.Active {
 		return e.handleSearchMode(ev)
 	}

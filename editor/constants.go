@@ -35,8 +35,3 @@ const (
 	DefaultHistorySize = 100
 )
 
-// Search constants
-const (
-	// ReplaceSyntaxPrefix is the prefix for replace mode in search
-	ReplaceSyntaxPrefix = "replace::"
-)
