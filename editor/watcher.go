@@ -23,7 +23,7 @@ func (e *FileChangedEvent) When() time.Time {
 // FileWatcher watches files for external changes
 type FileWatcher struct {
 	watcher    *fsnotify.Watcher
-	screen     *Screen
+	screen     EventPoster
 	files      map[string]time.Time // absolute path -> last known mod time
 	mu         sync.Mutex
 	debounce   map[string]*time.Timer
@@ -31,7 +31,7 @@ type FileWatcher struct {
 }
 
 // NewFileWatcher creates a new file watcher
-func NewFileWatcher(screen *Screen) (*FileWatcher, error) {
+func NewFileWatcher(screen EventPoster) (*FileWatcher, error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err

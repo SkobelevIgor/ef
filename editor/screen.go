@@ -40,6 +40,12 @@ func NewScreen() (*Screen, error) {
 	return &Screen{screen: s}, nil
 }
 
+// NewScreenFromTcell creates a Screen wrapping an existing tcell.Screen.
+// Useful for testing with tcell.NewSimulationScreen.
+func NewScreenFromTcell(s tcell.Screen) *Screen {
+	return &Screen{screen: s}
+}
+
 // Close shuts down the screen
 func (s *Screen) Close() {
 	s.screen.Fini()
@@ -82,6 +88,11 @@ func (s *Screen) PollEvent() tcell.Event {
 // PostEvent injects a custom event into the event queue
 func (s *Screen) PostEvent(ev tcell.Event) error {
 	return s.screen.PostEvent(ev)
+}
+
+// Sync synchronizes the screen state
+func (s *Screen) Sync() {
+	s.screen.Sync()
 }
 
 // calculatePaneLayoutHorizontal computes pane positions for horizontal (stacked) splits

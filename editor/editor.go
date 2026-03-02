@@ -26,6 +26,15 @@ type FileInfo struct {
 	Line     int // 1-based line number, 0 means not specified
 }
 
+// EditorDeps holds all injected dependencies for the Editor.
+// Used by NewEditorWithDeps to allow mock injection in tests.
+type EditorDeps struct {
+	Screen      ScreenRenderer
+	FileWatcher FileWatcherService
+	Config      ConfigProvider
+	FileTypes   FileTypeDetector
+}
+
 // Editor is the main editor struct
 type Editor struct {
 	// Shared buffer model: bufferRegistry holds unique buffers, panes reference them
@@ -33,7 +42,7 @@ type Editor struct {
 	panes          []*Pane            // Visual panes (each references a buffer)
 	activePaneIdx  int                // Index of currently active pane
 
-	screen        *Screen
+	screen        ScreenRenderer
 	splitMode     SplitMode // horizontal or vertical layout
 	lastShiftTime time.Time
 	autoSaveTimer *time.Timer
@@ -42,11 +51,11 @@ type Editor struct {
 	clipboard     [][]rune // Stores copied lines/text
 	clipboardLine bool     // true if clipboard contains whole lines (yy/dd)
 	history       *History // Undo/redo history
-	fileWatcher   *FileWatcher
+	fileWatcher   FileWatcherService
 
 	// Configuration and filetype support
-	config           *Config
-	fileTypeRegistry *FileTypeRegistry
+	config           ConfigProvider
+	fileTypeRegistry FileTypeDetector
 
 	// Key mapping state
 	pendingMapKeys string
@@ -189,6 +198,24 @@ func New(fileInfos []FileInfo, splitMode SplitMode) (*Editor, error) {
 	}, nil
 }
 
+// NewEditorWithDeps creates an Editor with explicit dependencies for testing.
+func NewEditorWithDeps(deps EditorDeps, buffers map[string]*Buffer, panes []*Pane, splitMode SplitMode) *Editor {
+	return &Editor{
+		bufferRegistry:   buffers,
+		panes:            panes,
+		activePaneIdx:    0,
+		screen:           deps.Screen,
+		splitMode:        splitMode,
+		mode:             ModeNormal,
+		inputState:       NewInputState(),
+		history:          NewHistory(100),
+		fileWatcher:      deps.FileWatcher,
+		config:           deps.Config,
+		fileTypeRegistry: deps.FileTypes,
+		globalMarks:      make(map[rune]GlobalMark),
+	}
+}
+
 // Run starts the main editor loop
 func (e *Editor) Run() error {
 	defer e.screen.Close()
@@ -208,7 +235,7 @@ func (e *Editor) Run() error {
 				return nil
 			}
 		case *tcell.EventResize:
-			e.screen.screen.Sync()
+			e.screen.Sync()
 		case *FileChangedEvent:
 			e.handleExternalFileChange(ev.Filename)
 		case *EventMappingTimeout:
@@ -422,7 +449,8 @@ func (e *Editor) handleKey(ev *tcell.EventKey) bool {
 // tryKeyMapping checks if the current key should trigger a mapping
 // Returns true if the key was consumed by the mapping system
 func (e *Editor) tryKeyMapping(ev *tcell.EventKey) bool {
-	if len(e.config.Maps) == 0 {
+	maps := e.config.GetMaps()
+	if len(maps) == 0 {
 		return false
 	}
 
@@ -441,7 +469,7 @@ func (e *Editor) tryKeyMapping(ev *tcell.EventKey) bool {
 
 	// Check if any mapping starts with our pending keys
 	hasPrefix := false
-	for trigger := range e.config.Maps {
+	for trigger := range maps {
 		if len(trigger) >= len(e.pendingMapKeys) && trigger[:len(e.pendingMapKeys)] == e.pendingMapKeys {
 			hasPrefix = true
 			break
@@ -455,7 +483,7 @@ func (e *Editor) tryKeyMapping(ev *tcell.EventKey) bool {
 	}
 
 	// Check for exact match
-	if expansion, ok := e.config.Maps[e.pendingMapKeys]; ok {
+	if expansion, ok := maps[e.pendingMapKeys]; ok {
 		// Execute the mapping
 		e.executeMapping(expansion)
 		e.pendingMapKeys = ""

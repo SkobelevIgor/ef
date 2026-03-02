@@ -50,7 +50,7 @@ func NewBuffer(filename string) (*Buffer, error) {
 }
 
 // NewBufferWithRegistry creates a new buffer with filetype detection from a registry
-func NewBufferWithRegistry(filename string, registry *FileTypeRegistry) (*Buffer, error) {
+func NewBufferWithRegistry(filename string, registry FileTypeDetector) (*Buffer, error) {
 	b, err := NewBuffer(filename)
 	if err != nil {
 		return nil, err

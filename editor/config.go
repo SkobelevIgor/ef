@@ -150,3 +150,13 @@ func (c *Config) GetFileTypeConfig(ftName string) FileTypeConfig {
 	}
 	return c.FileTypes["plain"]
 }
+
+// GetKeyMappings returns the key mappings from config (currently same as Maps)
+func (c *Config) GetKeyMappings() map[string]string {
+	return c.Maps
+}
+
+// GetMaps returns the key mappings (alias for Maps field)
+func (c *Config) GetMaps() map[string]string {
+	return c.Maps
+}

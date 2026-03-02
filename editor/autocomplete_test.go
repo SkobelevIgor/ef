@@ -187,3 +187,127 @@ func TestFindSuggestions(t *testing.T) {
 		}
 	})
 }
+
+func TestNewAutocompleteState(t *testing.T) {
+	suggestions := []Suggestion{{Word: "hello", Score: 100}, {Word: "help", Score: 90}}
+	ac := NewAutocompleteState("hel", 5, suggestions)
+	if !ac.Active {
+		t.Error("should be active")
+	}
+	if ac.Prefix != "hel" {
+		t.Errorf("Prefix = %q", ac.Prefix)
+	}
+	if ac.PrefixCol != 5 {
+		t.Errorf("PrefixCol = %d", ac.PrefixCol)
+	}
+	if ac.SelectedIdx != 0 {
+		t.Errorf("SelectedIdx = %d", ac.SelectedIdx)
+	}
+}
+
+func TestAutocompleteStateSelected(t *testing.T) {
+	t.Run("valid selection", func(t *testing.T) {
+		ac := NewAutocompleteState("h", 0, []Suggestion{{Word: "hello", Score: 100}})
+		sel := ac.Selected()
+		if sel == nil || sel.Word != "hello" {
+			t.Error("expected 'hello'")
+		}
+	})
+
+	t.Run("nil state", func(t *testing.T) {
+		var ac *AutocompleteState
+		if ac.Selected() != nil {
+			t.Error("expected nil")
+		}
+	})
+
+	t.Run("empty suggestions", func(t *testing.T) {
+		ac := &AutocompleteState{Suggestions: nil}
+		if ac.Selected() != nil {
+			t.Error("expected nil")
+		}
+	})
+
+	t.Run("out of range", func(t *testing.T) {
+		ac := &AutocompleteState{Suggestions: []Suggestion{{Word: "a"}}, SelectedIdx: 5}
+		if ac.Selected() != nil {
+			t.Error("expected nil for out of range")
+		}
+	})
+}
+
+func TestAutocompleteStateNextPrev(t *testing.T) {
+	ac := NewAutocompleteState("h", 0, []Suggestion{
+		{Word: "hello"}, {Word: "help"}, {Word: "hero"},
+	})
+
+	ac.Next()
+	if ac.SelectedIdx != 1 {
+		t.Errorf("after Next: idx = %d, want 1", ac.SelectedIdx)
+	}
+	ac.Next()
+	if ac.SelectedIdx != 2 {
+		t.Errorf("after 2x Next: idx = %d, want 2", ac.SelectedIdx)
+	}
+	ac.Next() // wraps
+	if ac.SelectedIdx != 0 {
+		t.Errorf("after wrap: idx = %d, want 0", ac.SelectedIdx)
+	}
+
+	ac.Prev() // wraps to end
+	if ac.SelectedIdx != 2 {
+		t.Errorf("after Prev from 0: idx = %d, want 2", ac.SelectedIdx)
+	}
+	ac.Prev()
+	if ac.SelectedIdx != 1 {
+		t.Errorf("after 2x Prev: idx = %d, want 1", ac.SelectedIdx)
+	}
+
+	// nil state should not panic
+	var nilAC *AutocompleteState
+	nilAC.Next()
+	nilAC.Prev()
+}
+
+func TestAutocompleteStateUpdateSuggestions(t *testing.T) {
+	ac := NewAutocompleteState("h", 0, []Suggestion{{Word: "hello"}})
+	ac.SelectedIdx = 0
+
+	newSuggs := []Suggestion{{Word: "help"}, {Word: "hero"}}
+	ac.UpdateSuggestions("he", newSuggs)
+
+	if ac.Prefix != "he" {
+		t.Errorf("Prefix = %q", ac.Prefix)
+	}
+	if len(ac.Suggestions) != 2 {
+		t.Errorf("suggestions count = %d", len(ac.Suggestions))
+	}
+	if ac.SelectedIdx != 0 {
+		t.Error("SelectedIdx should be reset to 0")
+	}
+}
+
+func TestAutocompleteStateGetWords(t *testing.T) {
+	ac := &AutocompleteState{}
+	lines := [][]rune{[]rune("hello world foo")}
+
+	words := ac.GetWords(lines, 1, -1, -1)
+	if len(words) < 2 {
+		t.Errorf("expected at least 2 words, got %d", len(words))
+	}
+
+	// Same modCount should return cached
+	words2 := ac.GetWords(lines, 1, -1, -1)
+	if len(words2) != len(words) {
+		t.Error("cached result should be same")
+	}
+
+	// Different modCount should recalculate
+	words3 := ac.GetWords(lines, 2, -1, -1)
+	if len(words3) != len(words) {
+		t.Error("should still have same words")
+	}
+	if ac.cachedModCount != 2 {
+		t.Errorf("cachedModCount = %d, want 2", ac.cachedModCount)
+	}
+}
