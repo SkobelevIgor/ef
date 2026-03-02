@@ -30,5 +30,5 @@ For any code changes strictly follow TDD approach:
 
 ## Coding guide:
 - ALWAYS follow dependency inversion principle, never pass instance or pointer of struct to function, use interface definition instead. Actively use `gomock` in testing of such dependencies. This will simplify writing of unit tests.
-- NEVER create mehtods, longer then 20 rows. If you have such situation, decompose the function / method.
+- Max length of the functiion is 20 rows. If you modify existng or creating new function and rich this limit - decompose it.
 
