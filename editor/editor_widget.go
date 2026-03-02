@@ -178,6 +178,7 @@ func (e *Editor) handleWidgetFindBarKey(ev *tcell.EventKey) bool {
 		// Enter confirms search in Search mode; no-op in FR mode
 		if w.Kind == WidgetSearch {
 			w.Focus = FocusEditor
+			w.Confirmed = true
 		}
 		return false
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
@@ -360,6 +361,7 @@ func (e *Editor) widgetReplaceCurrentMatch() {
 	newLine = append(newLine, line[endCol:]...)
 	buf.Lines[match.Row] = newLine
 	buf.Modified = true
+	w.Confirmed = true
 
 	// Record undo
 	e.history.Push(&Change{
@@ -394,7 +396,9 @@ func (e *Editor) closeWidget() {
 	if w == nil {
 		return
 	}
-	pane.CursorRow = w.AnchorRow
-	pane.CursorCol = w.AnchorCol
+	if !w.Confirmed {
+		pane.CursorRow = w.AnchorRow
+		pane.CursorCol = w.AnchorCol
+	}
 	pane.Widget = nil
 }

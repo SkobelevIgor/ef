@@ -1071,6 +1071,149 @@ func TestWidget_PerPane_EscapeOnlyClosesActiveWidget(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// closeWidget cursor behavior: Confirmed flag
+// ---------------------------------------------------------------------------
+
+func TestCloseWidget_Find_NoEnter_RestoresAnchor(t *testing.T) {
+	env := newTestEditor(t, "hello world", "foo hello bar")
+	ed := env.Editor
+	pane := ed.activePane()
+	pane.CursorRow = 0
+	pane.CursorCol = 6 // middle of "world", not a match
+
+	ed.openSearchWidget()
+
+	// Type query (auto-navigates at 2+ chars, moving cursor)
+	for _, r := range "hello" {
+		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+
+	// Cursor should have moved to a match (away from anchor)
+	if pane.CursorRow == 0 && pane.CursorCol == 6 {
+		t.Fatal("cursor should have moved to a match")
+	}
+
+	// Esc without Enter → restores anchor
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+
+	if pane.CursorRow != 0 || pane.CursorCol != 6 {
+		t.Errorf("cursor = (%d,%d), want (0,6)", pane.CursorRow, pane.CursorCol)
+	}
+}
+
+func TestCloseWidget_Find_AfterEnter_KeepsCursor(t *testing.T) {
+	env := newTestEditor(t, "hello world", "foo hello bar")
+	ed := env.Editor
+	pane := ed.activePane()
+	pane.CursorRow = 0
+	pane.CursorCol = 6 // middle of "world", not a match
+
+	ed.openSearchWidget()
+
+	// Type and confirm with Enter
+	for _, r := range "hello" {
+		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	// Cursor is at a match position (not the anchor)
+	matchRow, matchCol := pane.CursorRow, pane.CursorCol
+	if matchRow == 0 && matchCol == 6 {
+		t.Fatal("cursor should be at a match, not the anchor")
+	}
+
+	// Esc after Enter → keeps cursor at match
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+
+	if pane.CursorRow != matchRow || pane.CursorCol != matchCol {
+		t.Errorf("cursor = (%d,%d), want (%d,%d)",
+			pane.CursorRow, pane.CursorCol, matchRow, matchCol)
+	}
+}
+
+func TestCloseWidget_Find_AfterEnterAndNav_KeepsCursor(t *testing.T) {
+	env := newTestEditor(t, "hello world hello again hello")
+	ed := env.Editor
+	pane := ed.activePane()
+	pane.CursorRow = 0
+	pane.CursorCol = 0
+
+	ed.openSearchWidget()
+	for _, r := range "hello" {
+		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+
+	// Enter confirms search
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	// Navigate with n
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'n', tcell.ModNone))
+
+	matchRow, matchCol := pane.CursorRow, pane.CursorCol
+
+	// Esc → keeps cursor (Enter was pressed)
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+
+	if pane.CursorRow != matchRow || pane.CursorCol != matchCol {
+		t.Errorf("cursor = (%d,%d), want (%d,%d)",
+			pane.CursorRow, pane.CursorCol, matchRow, matchCol)
+	}
+}
+
+func TestCloseWidget_FindReplace_NavOnly_RestoresAnchor(t *testing.T) {
+	env := newTestEditor(t, "hello world hello again hello")
+	ed := env.Editor
+	pane := ed.activePane()
+	pane.CursorRow = 0
+	pane.CursorCol = 3
+
+	ed.openFindReplaceWidget()
+	for _, r := range "hello" {
+		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+
+	// Move to editor focus and navigate with n/N (no replacement)
+	ed.activePane().Widget.Focus = FocusEditor
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'n', tcell.ModNone))
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, 'N', tcell.ModNone))
+
+	// Esc → restores anchor (no replacement was made)
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+
+	if pane.CursorRow != 0 || pane.CursorCol != 3 {
+		t.Errorf("cursor = (%d,%d), want (0,3)", pane.CursorRow, pane.CursorCol)
+	}
+}
+
+func TestCloseWidget_FindReplace_AfterReplace_KeepsCursor(t *testing.T) {
+	env := newTestEditor(t, "hello world hello")
+	ed := env.Editor
+	pane := ed.activePane()
+	pane.CursorRow = 0
+	pane.CursorCol = 3
+
+	ed.openFindReplaceWidget()
+	for _, r := range "hello" {
+		ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	ed.activePane().Widget.FindReplaceSession.ReplaceText = "hi"
+	ed.activePane().Widget.Focus = FocusEditor
+
+	// Replace with Enter
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	matchRow, matchCol := pane.CursorRow, pane.CursorCol
+
+	// Esc → keeps cursor (replacement was made)
+	ed.handleWidgetMode(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
+
+	if pane.CursorRow != matchRow || pane.CursorCol != matchCol {
+		t.Errorf("cursor = (%d,%d), want (%d,%d)",
+			pane.CursorRow, pane.CursorCol, matchRow, matchCol)
+	}
+}
+
 func TestWidget_PerPane_SwitchPanesPreservesWidget(t *testing.T) {
 	env := newTestEditorMultiPane(t,
 		[]string{"hello world"},

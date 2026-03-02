@@ -45,6 +45,7 @@ type WidgetState struct {
 	Focus              FocusTarget
 	AnchorRow          int
 	AnchorCol          int
+	Confirmed          bool           // true when cursor should persist on close
 	SearchSession      *WidgetSession // F4 state
 	FindReplaceSession *WidgetSession // F3 state
 }
