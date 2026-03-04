@@ -45,8 +45,8 @@ func (r *FileTypeRegistry) registerFileTypeFromConfig(ftName string, ftConfig Fi
 		Extensions: extensions,
 	}
 
-	// Create highlighter if syntax highlighting is enabled and rules exist
-	if ftConfig.SyntaxHighlighting && len(ftConfig.SyntaxRules) > 0 {
+	// Create highlighter if syntax highlighting is enabled and config exists
+	if ftConfig.SyntaxHighlighting && (ftConfig.Tokenizer != nil || len(ftConfig.SyntaxRules) > 0) {
 		info.Highlighter = NewSyntaxHighlighter(ftConfig)
 	}
 

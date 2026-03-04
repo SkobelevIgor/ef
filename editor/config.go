@@ -29,6 +29,33 @@ type SyntaxRuleConfig struct {
 	Priority int         `json:"priority"`
 }
 
+// StringDelimConfig defines a string delimiter for the tokenizer
+type StringDelimConfig struct {
+	Open   string `json:"open"`
+	Close  string `json:"close"`
+	Escape string `json:"escape,omitempty"`
+}
+
+// TokenStyleMap maps token types to styles
+type TokenStyleMap struct {
+	Keyword      StyleConfig `json:"keyword"`
+	String       StyleConfig `json:"string"`
+	Comment      StyleConfig `json:"comment"`
+	FunctionCall StyleConfig `json:"function_call"`
+	Bracket      StyleConfig `json:"bracket"`
+	Number       StyleConfig `json:"number"`
+}
+
+// TokenizerConfig defines a single-pass tokenizer configuration
+type TokenizerConfig struct {
+	Keywords     []string           `json:"keywords"`
+	LineComment  string             `json:"line_comment"`
+	BlockComment []string           `json:"block_comment,omitempty"`
+	Strings      []StringDelimConfig `json:"strings"`
+	Brackets     string             `json:"brackets"`
+	Styles       *TokenStyleMap     `json:"styles"`
+}
+
 // FileTypeConfig holds per-filetype configuration
 type FileTypeConfig struct {
 	Extensions         []string           `json:"extensions"`
@@ -38,6 +65,7 @@ type FileTypeConfig struct {
 	AutoIndentation    bool               `json:"autoindentation"`
 	ExpandTab          bool               `json:"expandtab"`
 	SyntaxRules        []SyntaxRuleConfig `json:"syntax_rules,omitempty"`
+	Tokenizer          *TokenizerConfig   `json:"tokenizer,omitempty"`
 }
 
 // LoadConfig loads configuration from ~/.efconfig

@@ -41,13 +41,14 @@ type BaseSyntaxHighlighter struct {
 
 // NewSyntaxHighlighter creates a syntax highlighter for the given file type config
 func NewSyntaxHighlighter(ftConfig FileTypeConfig) SyntaxHighlighter {
-	h := &BaseSyntaxHighlighter{}
+	if ftConfig.Tokenizer != nil {
+		return NewTokenizerHighlighter(ftConfig.Tokenizer)
+	}
 
-	// Load rules from config
+	h := &BaseSyntaxHighlighter{}
 	for _, rule := range ftConfig.SyntaxRules {
 		h.addRule(rule.Pattern, parseStyle(rule.Style), rule.Priority)
 	}
-
 	return h
 }
 
@@ -242,12 +243,20 @@ func (c *HighlightCache) GetTokens(lineIdx int, line []rune, lines [][]rune) []T
 	return tokens
 }
 
-// Invalidate clears the cache for a specific line
+// Invalidate clears the cache for lineIdx and all subsequent lines,
+// and resets the highlighter state to force recomputation
 func (c *HighlightCache) Invalidate(lineIdx int) {
 	c.mu.Lock()
-	delete(c.cache, lineIdx)
-	delete(c.lineHashes, lineIdx)
+	for k := range c.cache {
+		if k >= lineIdx {
+			delete(c.cache, k)
+			delete(c.lineHashes, k)
+		}
+	}
 	c.mu.Unlock()
+	if c.highlighter != nil {
+		c.highlighter.Reset()
+	}
 }
 
 // InvalidateAll clears the entire cache

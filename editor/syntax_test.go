@@ -103,6 +103,54 @@ func TestParseStyle(t *testing.T) {
 	}
 }
 
+func TestNewSyntaxHighlighter_TokenizerConfig(t *testing.T) {
+	ftConfig := FileTypeConfig{
+		SyntaxHighlighting: true,
+		Tokenizer: &TokenizerConfig{
+			Keywords:    []string{"func", "var"},
+			LineComment: "//",
+			Strings: []StringDelimConfig{
+				{Open: "\"", Close: "\"", Escape: "\\"},
+			},
+			Brackets: "()[]{}",
+			Styles: &TokenStyleMap{
+				Keyword:      StyleConfig{Color: "yellow"},
+				String:       StyleConfig{Color: "green"},
+				Comment:      StyleConfig{Color: "gray"},
+				FunctionCall: StyleConfig{Color: "yellow"},
+				Bracket:      StyleConfig{Color: "purple"},
+				Number:       StyleConfig{Color: "blue", Bold: true},
+			},
+		},
+	}
+	h := NewSyntaxHighlighter(ftConfig)
+
+	// Should return TokenizerHighlighter, not BaseSyntaxHighlighter
+	if _, ok := h.(*TokenizerHighlighter); !ok {
+		t.Errorf("expected *TokenizerHighlighter, got %T", h)
+	}
+
+	// Should highlight keywords
+	line := []rune("func main()")
+	tokens := h.Highlight(line, 0, [][]rune{line})
+	if len(tokens) == 0 {
+		t.Fatal("expected tokens from TokenizerHighlighter")
+	}
+}
+
+func TestNewSyntaxHighlighter_FallbackToBase(t *testing.T) {
+	ftConfig := FileTypeConfig{
+		SyntaxRules: []SyntaxRuleConfig{
+			{Pattern: `\bfunc\b`, Style: StyleConfig{Color: "blue"}, Priority: 1},
+		},
+	}
+	h := NewSyntaxHighlighter(ftConfig)
+
+	if _, ok := h.(*BaseSyntaxHighlighter); !ok {
+		t.Errorf("expected *BaseSyntaxHighlighter, got %T", h)
+	}
+}
+
 func TestHighlight_SingleRule(t *testing.T) {
 	ftConfig := FileTypeConfig{
 		SyntaxRules: []SyntaxRuleConfig{
@@ -366,6 +414,42 @@ func TestHashLine_EmptyLine(t *testing.T) {
 	// Should return the initial seed value
 	if h != 5381 {
 		t.Errorf("empty line hash = %d, want 5381", h)
+	}
+}
+
+func TestHighlightCache_InvalidateCascade(t *testing.T) {
+	cfg := &TokenizerConfig{
+		Keywords:     []string{"func"},
+		LineComment:  "//",
+		BlockComment: []string{"/*", "*/"},
+		Brackets:     "(){}",
+		Styles: &TokenStyleMap{
+			Keyword: StyleConfig{Color: "yellow"},
+			Comment: StyleConfig{Color: "gray"},
+		},
+	}
+	h := NewTokenizerHighlighter(cfg)
+	cache := NewHighlightCache(h)
+
+	lines := [][]rune{
+		[]rune("func main()"),
+		[]rune("// comment"),
+		[]rune("var x"),
+	}
+
+	// Populate cache
+	for i, line := range lines {
+		cache.GetTokens(i, line, lines)
+	}
+
+	// Invalidate from line 1 — should clear lines >= 1 and reset highlighter
+	cache.Invalidate(1)
+
+	// Verify line 0 still cached, line 1 cleared
+	// (We can't directly check cache internals, but GetTokens should recompute)
+	tokens := cache.GetTokens(1, lines[1], lines)
+	if len(tokens) == 0 {
+		t.Error("expected tokens after invalidate and recompute")
 	}
 }
 

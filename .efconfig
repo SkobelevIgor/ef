@@ -7,18 +7,25 @@
 			"shiftwidth": 4,
 			"autoindentation": true,
 			"expandtab": false,
-			"syntax_rules": [
-				{"pattern": "(?:^|\\s)//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
-				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "`[^`]*`", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "'([^'\\\\]|\\\\.)'", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "\\b(break|case|chan|const|continue|default|defer|else|fallthrough|for|func|go|goto|if|import|interface|map|package|range|return|select|struct|switch|type|var)\\b", "style": {"color": "yellow", "bold": false}, "priority": 10},
-					{"pattern": "\\.\\w+\\(", "style": {"color": "yellow", "bold": false}, "priority": 10},
-				{"pattern": "\\w+\\(", "style": {"color": "yellow", "bold": false}, "priority": 8},
-				{"pattern": "[\\(\\)\\[\\]\\{\\}]", "style": {"color": "purple", "bold": false}, "priority": 11},
-				{"pattern": "\\b\\d+(\\.\\d+)?\\b", "style": {"color": "blue", "bold": true}, "priority": 5},
-				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "blue", "bold": true}, "priority": 5}
-			]
+			"tokenizer": {
+				"keywords": ["break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"],
+				"line_comment": "//",
+				"block_comment": ["/*", "*/"],
+				"strings": [
+					{"open": "`", "close": "`"},
+					{"open": "\"", "close": "\"", "escape": "\\"},
+					{"open": "'", "close": "'", "escape": "\\"}
+				],
+				"brackets": "()[]{}",
+				"styles": {
+					"keyword":       {"color": "yellow"},
+					"string":        {"color": "green"},
+					"comment":       {"color": "gray"},
+					"function_call": {"color": "yellow"},
+					"bracket":       {"color": "purple"},
+					"number":        {"color": "blue", "bold": true}
+				}
+			}
 		},
 		"python": {
 			"extensions": [".py", ".pyw"],
@@ -27,20 +34,25 @@
 			"shiftwidth": 4,
 			"autoindentation": true,
 			"expandtab": true,
-			"syntax_rules": [
-				{"pattern": "#.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
-				{"pattern": "\"\"\"[\\s\\S]*?\"\"\"", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "'''[\\s\\S]*?'''", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "'([^'\\\\]|\\\\.)*'", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "\\b(and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|None|nonlocal|not|or|pass|raise|return|try|while|with|yield)\\b", "style": {"color": "blue", "bold": true}, "priority": 10},
-					{"pattern": "\\w+\\(", "style": {"color": "yellow", "bold": false}, "priority": 8},
-				{"pattern": "[\\(\\)\\[\\]\\{\\}]", "style": {"color": "purple", "bold": false}, "priority": 11},
-				{"pattern": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0o[0-7]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
-			]
+			"tokenizer": {
+				"keywords": ["and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "None", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"],
+				"line_comment": "#",
+				"strings": [
+					{"open": "\"\"\"", "close": "\"\"\""},
+					{"open": "'''", "close": "'''"},
+					{"open": "\"", "close": "\"", "escape": "\\"},
+					{"open": "'", "close": "'", "escape": "\\"}
+				],
+				"brackets": "()[]{}",
+				"styles": {
+					"keyword":       {"color": "blue", "bold": true},
+					"string":        {"color": "green"},
+					"comment":       {"color": "gray"},
+					"function_call": {"color": "yellow"},
+					"bracket":       {"color": "purple"},
+					"number":        {"color": "yellow"}
+				}
+			}
 		},
 		"javascript/typescript": {
 			"extensions": [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"],
@@ -49,20 +61,25 @@
 			"shiftwidth": 2,
 			"autoindentation": true,
 			"expandtab": true,
-			"syntax_rules": [
-				{"pattern": "(?:^|\\s)//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
-				{"pattern": "`[^`]*`", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "'([^'\\\\]|\\\\.)*'", "style": {"color": "green", "bold": false}, "priority": 35},
-				{"pattern": "\\b(abstract|as|async|await|break|case|catch|class|const|continue|debugger|declare|default|delete|do|else|enum|export|extends|finally|for|from|function|if|implements|import|in|instanceof|interface|let|module|namespace|never|new|of|private|protected|public|readonly|return|static|super|switch|this|throw|try|type|typeof|unknown|var|void|while|with|yield)\\b", "style": {"color": "blue", "bold": true}, "priority": 10},
-					{"pattern": "=>", "style": {"color": "blue", "bold": true}, "priority": 10},
-				{"pattern": "\\w+\\(", "style": {"color": "yellow", "bold": false}, "priority": 8},
-				{"pattern": "[\\(\\)\\[\\]\\{\\}]", "style": {"color": "purple", "bold": false}, "priority": 11},
-				{"pattern": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0o[0-7]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
-			]
+			"tokenizer": {
+				"keywords": ["abstract", "as", "async", "await", "break", "case", "catch", "class", "const", "continue", "debugger", "declare", "default", "delete", "do", "else", "enum", "export", "extends", "finally", "for", "from", "function", "if", "implements", "import", "in", "instanceof", "interface", "let", "module", "namespace", "never", "new", "of", "private", "protected", "public", "readonly", "return", "static", "super", "switch", "this", "throw", "try", "type", "typeof", "unknown", "var", "void", "while", "with", "yield"],
+				"line_comment": "//",
+				"block_comment": ["/*", "*/"],
+				"strings": [
+					{"open": "`", "close": "`"},
+					{"open": "\"", "close": "\"", "escape": "\\"},
+					{"open": "'", "close": "'", "escape": "\\"}
+				],
+				"brackets": "()[]{}",
+				"styles": {
+					"keyword":       {"color": "blue", "bold": true},
+					"string":        {"color": "green"},
+					"comment":       {"color": "gray"},
+					"function_call": {"color": "yellow"},
+					"bracket":       {"color": "purple"},
+					"number":        {"color": "yellow"}
+				}
+			}
 		}
 	},
 	"maps": {

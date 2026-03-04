@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/gdamore/tcell/v2"
@@ -98,6 +99,105 @@ func TestParseSpecialKeys(t *testing.T) {
 			t.Error("third should be Tab")
 		}
 	})
+}
+
+func TestTokenizerConfigUnmarshal(t *testing.T) {
+	jsonData := `{
+		"file_types": {
+			"go": {
+				"extensions": [".go"],
+				"syntax_highlighting": true,
+				"tokenizer": {
+					"keywords": ["func", "var", "const"],
+					"line_comment": "//",
+					"block_comment": ["/*", "*/"],
+					"strings": [
+						{"open": "\"", "close": "\"", "escape": "\\"},
+						{"open": "'", "close": "'", "escape": "\\"},
+						{"open": "` + "`" + `", "close": "` + "`" + `"}
+					],
+					"brackets": "()[]{}",
+					"styles": {
+						"keyword":       {"color": "yellow"},
+						"string":        {"color": "green"},
+						"comment":       {"color": "gray"},
+						"function_call": {"color": "yellow"},
+						"bracket":       {"color": "purple"},
+						"number":        {"color": "blue", "bold": true}
+					}
+				}
+			}
+		}
+	}`
+
+	cfg := DefaultConfig()
+	if err := json.Unmarshal([]byte(jsonData), cfg); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	ftCfg := cfg.FileTypes["go"]
+	if ftCfg.Tokenizer == nil {
+		t.Fatal("expected Tokenizer to be non-nil")
+	}
+
+	tok := ftCfg.Tokenizer
+	if len(tok.Keywords) != 3 {
+		t.Errorf("keywords count = %d, want 3", len(tok.Keywords))
+	}
+	if tok.LineComment != "//" {
+		t.Errorf("line_comment = %q, want //", tok.LineComment)
+	}
+	if len(tok.BlockComment) != 2 || tok.BlockComment[0] != "/*" || tok.BlockComment[1] != "*/" {
+		t.Errorf("block_comment = %v, want [/* */]", tok.BlockComment)
+	}
+	if len(tok.Strings) != 3 {
+		t.Errorf("strings count = %d, want 3", len(tok.Strings))
+	}
+	if tok.Strings[0].Open != "\"" || tok.Strings[0].Close != "\"" || tok.Strings[0].Escape != "\\" {
+		t.Errorf("strings[0] = %+v", tok.Strings[0])
+	}
+	if tok.Strings[2].Escape != "" {
+		t.Errorf("strings[2].escape should be empty, got %q", tok.Strings[2].Escape)
+	}
+	if tok.Brackets != "()[]{}" {
+		t.Errorf("brackets = %q, want ()[]{}", tok.Brackets)
+	}
+	if tok.Styles == nil {
+		t.Fatal("styles should not be nil")
+	}
+	if tok.Styles.Keyword.Color != "yellow" {
+		t.Errorf("keyword color = %q, want yellow", tok.Styles.Keyword.Color)
+	}
+	if !tok.Styles.Number.Bold {
+		t.Error("number should be bold")
+	}
+}
+
+func TestTokenizerConfigBackwardCompat(t *testing.T) {
+	jsonData := `{
+		"file_types": {
+			"go": {
+				"extensions": [".go"],
+				"syntax_highlighting": true,
+				"syntax_rules": [
+					{"pattern": "\\bfunc\\b", "style": {"color": "blue"}, "priority": 1}
+				]
+			}
+		}
+	}`
+
+	cfg := DefaultConfig()
+	if err := json.Unmarshal([]byte(jsonData), cfg); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	ftCfg := cfg.FileTypes["go"]
+	if ftCfg.Tokenizer != nil {
+		t.Error("expected Tokenizer to be nil when not present")
+	}
+	if len(ftCfg.SyntaxRules) != 1 {
+		t.Errorf("syntax_rules count = %d, want 1", len(ftCfg.SyntaxRules))
+	}
 }
 
 func TestParseSpecialKeyName(t *testing.T) {

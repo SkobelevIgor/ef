@@ -50,6 +50,35 @@ func TestDetectFileType(t *testing.T) {
 	}
 }
 
+func TestGetHighlighter_WithTokenizer(t *testing.T) {
+	cfg := &Config{
+		FileTypes: map[string]FileTypeConfig{
+			"go": {
+				Extensions:         []string{".go"},
+				SyntaxHighlighting: true,
+				Tokenizer: &TokenizerConfig{
+					Keywords:    []string{"func"},
+					LineComment: "//",
+					Brackets:    "(){}",
+					Styles: &TokenStyleMap{
+						Keyword: StyleConfig{Color: "yellow"},
+					},
+				},
+			},
+		},
+		Maps: map[string]string{},
+	}
+	r := NewFileTypeRegistry(cfg)
+
+	h := r.GetHighlighter("go")
+	if h == nil {
+		t.Fatal("expected non-nil highlighter with tokenizer config")
+	}
+	if _, ok := h.(*TokenizerHighlighter); !ok {
+		t.Errorf("expected *TokenizerHighlighter, got %T", h)
+	}
+}
+
 func TestGetHighlighter(t *testing.T) {
 	cfg := &Config{
 		FileTypes: map[string]FileTypeConfig{
