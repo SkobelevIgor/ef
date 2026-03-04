@@ -44,29 +44,8 @@
 				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
 			]
 		},
-		"javascript": {
-			"extensions": [".js", ".jsx", ".mjs", ".cjs"],
-			"syntax_highlighting": true,
-			"tabstop": 2,
-			"shiftwidth": 2,
-			"autoindentation": true,
-			"expandtab": true,
-			"syntax_rules": [
-				{"pattern": "//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
-				{"pattern": "`[^`]*`", "style": {"color": "green", "bold": false}, "priority": 20},
-				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 20},
-				{"pattern": "'([^'\\\\]|\\\\.)*'", "style": {"color": "green", "bold": false}, "priority": 20},
-				{"pattern": "\\b(async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield)\\b", "style": {"color": "blue", "bold": true}, "priority": 10},
-				{"pattern": "\\b(Array|Boolean|Date|Error|Function|JSON|Math|Number|Object|Promise|RegExp|String|console|document|window)\\b", "style": {"color": "teal", "bold": false}, "priority": 10},
-				{"pattern": "\\b(true|false|null|undefined|NaN|Infinity)\\b", "style": {"color": "purple", "bold": false}, "priority": 10},
-				{"pattern": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0o[0-7]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
-				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
-			]
-		},
-		"typescript": {
-			"extensions": [".ts", ".tsx"],
+		"javascript/typescript": {
+			"extensions": [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"],
 			"syntax_highlighting": true,
 			"tabstop": 2,
 			"shiftwidth": 2,
