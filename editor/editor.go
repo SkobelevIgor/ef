@@ -125,6 +125,7 @@ func (e *Editor) adjustOtherPaneCursors(buf *Buffer, editRow, linesDelta int) {
 			p.AdjustCursorForEdit(editRow, linesDelta)
 		}
 	}
+
 }
 
 // New creates a new editor instance
