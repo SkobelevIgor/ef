@@ -56,6 +56,7 @@ void pane_page_down(Pane *p, int height);
 void pane_page_up(Pane *p, int height);
 void pane_move_to_next_word(Pane *p);
 void pane_move_to_prev_word(Pane *p);
+void pane_move_to_word_end(Pane *p);
 void pane_find_char_forward(Pane *p, wchar_t ch);
 void pane_find_char_backward(Pane *p, wchar_t ch);
 

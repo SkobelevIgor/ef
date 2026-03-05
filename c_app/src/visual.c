@@ -106,6 +106,7 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
     case L'0': pane_move_to_line_start(pane); break;
     case L'$': pane_move_to_line_end(pane); break;
     case L'w': pane_move_to_next_word(pane); break;
+    case L'e': pane_move_to_word_end(pane); break;
     case L'b': pane_move_to_prev_word(pane); break;
     case L'G': pane_goto_line(pane, buf->line_count); break;
     case L'g': pane_goto_line(pane, 1); break;

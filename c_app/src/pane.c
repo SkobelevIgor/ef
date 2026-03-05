@@ -299,6 +299,45 @@ void pane_move_to_prev_word(Pane *p) {
     }
 }
 
+static void skip_ws_crossing_lines(Pane *p) {
+    wchar_t *line = p->buffer->lines[p->cursor_row];
+    int ll = p->buffer->line_lens[p->cursor_row];
+    while (p->cursor_col >= ll || is_whitespace(line[p->cursor_col])) {
+        if (p->cursor_col >= ll) {
+            if (p->cursor_row >= p->buffer->line_count - 1) return;
+            p->cursor_row++;
+            p->cursor_col = 0;
+            line = p->buffer->lines[p->cursor_row];
+            ll = p->buffer->line_lens[p->cursor_row];
+        } else p->cursor_col++;
+    }
+}
+
+void pane_move_to_word_end(Pane *p) {
+    int ll = p->buffer->line_lens[p->cursor_row];
+    if (p->cursor_col < ll - 1) p->cursor_col++;
+    else if (p->cursor_row < p->buffer->line_count - 1) {
+        p->cursor_row++;
+        p->cursor_col = 0;
+    } else return;
+
+    skip_ws_crossing_lines(p);
+    wchar_t *line = p->buffer->lines[p->cursor_row];
+    ll = p->buffer->line_lens[p->cursor_row];
+    if (p->cursor_col >= ll) return;
+
+    if (is_word_char(line[p->cursor_col])) {
+        while (p->cursor_col + 1 < ll
+               && is_word_char(line[p->cursor_col + 1]))
+            p->cursor_col++;
+    } else if (!is_whitespace(line[p->cursor_col])) {
+        while (p->cursor_col + 1 < ll
+               && !is_word_char(line[p->cursor_col + 1])
+               && !is_whitespace(line[p->cursor_col + 1]))
+            p->cursor_col++;
+    }
+}
+
 void pane_find_char_forward(Pane *p, wchar_t ch) {
     wchar_t *line = p->buffer->lines[p->cursor_row];
     int ll = p->buffer->line_lens[p->cursor_row];

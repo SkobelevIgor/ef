@@ -179,6 +179,43 @@ void test_visual_yank_singleline_stays_charmode(void) {
     TEST_ASSERT_EQUAL_INT(4, ed->clipboard->line_lens[0]); /* "hell" */
 }
 
+void test_visual_e_stops_at_word_end(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_col = 2; /* middle of "hello" */
+    pane_start_selection(p);
+
+    send_char(L'e');
+    /* Should stop at last char of "hello" (pos 4) */
+    TEST_ASSERT_EQUAL_INT(4, p->cursor_col);
+}
+
+void test_visual_e_from_word_end_to_next_word_end(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_col = 4; /* end of "hello" */
+    pane_start_selection(p);
+
+    send_char(L'e');
+    /* Should jump to end of "world" (pos 10) */
+    TEST_ASSERT_EQUAL_INT(10, p->cursor_col);
+}
+
+void test_visual_e_crosses_line_boundary(void) {
+    const wchar_t *lines[] = {L"abc", L"def"};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_col = 2; /* end of "abc" */
+    pane_start_selection(p);
+
+    send_char(L'e');
+    /* Should wrap to end of "def" on next line */
+    TEST_ASSERT_EQUAL_INT(1, p->cursor_row);
+    TEST_ASSERT_EQUAL_INT(2, p->cursor_col);
+}
+
 void test_visual_navigation(void) {
     const wchar_t *lines[] = {L"hello", L"world"};
     setup_editor(lines, 2);
@@ -200,6 +237,9 @@ int main(void) {
     RUN_TEST(test_visual_yank_multiline_is_linemode);
     RUN_TEST(test_visual_yank_multiline_paste);
     RUN_TEST(test_visual_yank_singleline_stays_charmode);
+    RUN_TEST(test_visual_e_stops_at_word_end);
+    RUN_TEST(test_visual_e_from_word_end_to_next_word_end);
+    RUN_TEST(test_visual_e_crosses_line_boundary);
     RUN_TEST(test_visual_navigation);
     return UNITY_END();
 }
