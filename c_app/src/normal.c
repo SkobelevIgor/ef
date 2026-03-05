@@ -408,7 +408,7 @@ static bool handle_goto_line_input(Editor *ed, EditorEvent *ev) {
         return false;
     }
 
-    if (ev->is_char && ev->ch == L'\n') { /* Enter */
+    if (ev->is_char && (ev->ch == L'\n' || ev->ch == L'\r')) { /* Enter */
         if (is->goto_line_buf_len > 0) {
             if (strcmp(is->goto_line_buffer, "0") == 0) {
                 pane_goto_line(pane, 1);

@@ -168,6 +168,19 @@ void test_goto_line_colon(void) {
     TEST_ASSERT_EQUAL_INT(2, editor_active_pane(ed)->cursor_row);
 }
 
+void test_goto_line_colon_cr(void) {
+    const wchar_t *lines[] = {L"1", L"2", L"3", L"4", L"5"};
+    setup_editor(lines, 5);
+
+    send_char(L':');
+    send_char(L'1');
+    send_char(L'0');
+    /* Real terminal sends \r (carriage return) with nonl() */
+    EditorEvent ev = {EV_KEY, (int)L'\r', L'\r', true};
+    editor_handle_key(ed, &ev);
+    TEST_ASSERT_EQUAL_INT(4, editor_active_pane(ed)->cursor_row);
+}
+
 void test_G_goes_to_last_line(void) {
     const wchar_t *lines[] = {L"1", L"2", L"3"};
     setup_editor(lines, 3);
@@ -225,6 +238,7 @@ int main(void) {
     RUN_TEST(test_x_deletes_char);
     RUN_TEST(test_undo);
     RUN_TEST(test_goto_line_colon);
+    RUN_TEST(test_goto_line_colon_cr);
     RUN_TEST(test_G_goes_to_last_line);
     RUN_TEST(test_g_goes_to_first_line);
     RUN_TEST(test_find_char_f);

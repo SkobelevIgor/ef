@@ -33,7 +33,7 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
             input_state_reset(is);
             return false;
         }
-        if (ev->is_char && ev->ch == L'\n') {
+        if (ev->is_char && (ev->ch == L'\n' || ev->ch == L'\r')) {
             if (is->goto_line_buf_len > 0) {
                 if (is->goto_line_buffer[0] == '$') {
                     pane_goto_line(pane, buf->line_count);
