@@ -1,9 +1,11 @@
 #include "unity.h"
 #include "editor.h"
 #include "insert.h"
+#include "autocomplete.h"
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
+#include <ncurses.h>
 
 static int mock_width = 80, mock_height = 24;
 static void mock_render(void *s, Pane **p, int n, int a, Mode m, InputState *i, SplitMode sp) { (void)s;(void)p;(void)n;(void)a;(void)m;(void)i;(void)sp; }
@@ -110,6 +112,125 @@ void test_insert_tab_literal(void) {
     TEST_ASSERT_EQUAL_INT(L'\t', buf->lines[0][0]);
 }
 
+static void send_key(int key) {
+    EditorEvent ev = {EV_KEY, key, 0, false};
+    editor_handle_key(ed, &ev);
+}
+
+void test_typing_triggers_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    send_char(L'h');
+    send_char(L'e');
+    /* Prefix "he" (len 2) should trigger autocomplete */
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+    TEST_ASSERT_TRUE(ed->input_state->autocomplete->active);
+}
+
+void test_tab_accepts_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    send_char(L'h');
+    send_char(L'e');
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+
+    /* Tab accepts the suggestion */
+    send_char(L'\t');
+    TEST_ASSERT_NULL(ed->input_state->autocomplete);
+    /* Word should be completed */
+    TEST_ASSERT_TRUE(buf->line_lens[1] > 2);
+}
+
+void test_escape_dismisses_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    send_char(L'h');
+    send_char(L'e');
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+
+    send_char(27); /* Escape */
+    TEST_ASSERT_NULL(ed->input_state->autocomplete);
+    TEST_ASSERT_EQUAL_INT(MODE_NORMAL, ed->mode);
+}
+
+void test_arrow_dismisses_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    send_char(L'h');
+    send_char(L'e');
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+
+    send_key(KEY_LEFT);
+    TEST_ASSERT_NULL(ed->input_state->autocomplete);
+}
+
+void test_down_navigates_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    send_char(L'h');
+    send_char(L'e');
+    AutocompleteState *ac = ed->input_state->autocomplete;
+    TEST_ASSERT_NOT_NULL(ac);
+    TEST_ASSERT_EQUAL_INT(0, ac->selected_idx);
+
+    send_key(KEY_DOWN);
+    /* Should navigate, not move cursor */
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+    TEST_ASSERT_EQUAL_INT(1, ed->input_state->autocomplete->selected_idx);
+    TEST_ASSERT_EQUAL_INT(1, p->cursor_row); /* cursor didn't move */
+}
+
+void test_backspace_retriggers_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help hero", L"hel"};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 3;
+
+    /* Trigger with "hel" prefix */
+    editor_trigger_autocomplete(ed);
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+
+    /* Backspace should retrigger (now "he") */
+    send_char(127);
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+}
+
+void test_enter_dismisses_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    send_char(L'h');
+    send_char(L'e');
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+
+    send_char(L'\n');
+    TEST_ASSERT_NULL(ed->input_state->autocomplete);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -119,5 +240,12 @@ int main(void) {
     RUN_TEST(test_enter_inserts_newline);
     RUN_TEST(test_insert_after_escape_undoable);
     RUN_TEST(test_insert_tab_literal);
+    RUN_TEST(test_typing_triggers_autocomplete);
+    RUN_TEST(test_tab_accepts_autocomplete);
+    RUN_TEST(test_escape_dismisses_autocomplete);
+    RUN_TEST(test_arrow_dismisses_autocomplete);
+    RUN_TEST(test_down_navigates_autocomplete);
+    RUN_TEST(test_backspace_retriggers_autocomplete);
+    RUN_TEST(test_enter_dismisses_autocomplete);
     return UNITY_END();
 }

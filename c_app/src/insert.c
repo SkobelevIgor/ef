@@ -1,104 +1,169 @@
 #include "insert.h"
 #include "editor.h"
+#include "autocomplete.h"
 
 #include <ncurses.h>
 
-bool handle_insert_mode(Editor *ed, EditorEvent *ev) {
+static void dismiss_ac(Editor *ed) {
+    if (ed->input_state->autocomplete) {
+        ac_state_free(ed->input_state->autocomplete);
+        ed->input_state->autocomplete = NULL;
+    }
+}
+
+static bool handle_ac_keys(Editor *ed, EditorEvent *ev) {
+    AutocompleteState *ac = ed->input_state->autocomplete;
+    if (!ac || !ac->active) return false;
+
+    /* Character keys when AC active */
+    if (ev->is_char) {
+        if (ev->ch == L'\t') {
+            editor_accept_autocomplete(ed);
+            return true;
+        }
+        return false; /* fall through to normal insert handling */
+    }
+
+    /* Special keys when AC active */
+    switch (ev->key) {
+    case KEY_DOWN:
+        ac_next(ac);
+        return true;
+    case KEY_UP:
+        ac_prev(ac);
+        return true;
+    }
+    return false;
+}
+
+static void handle_special_keys(Editor *ed, EditorEvent *ev) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
     int height = 0, width = 0;
 
-    if (ev->type != EV_KEY) return false;
-
-    /* Special keys */
-    if (!ev->is_char) {
-        switch (ev->key) {
-        case KEY_UP:    pane_move_up(pane); break;
-        case KEY_DOWN:  pane_move_down(pane); break;
-        case KEY_LEFT:  pane_move_left(pane); break;
-        case KEY_RIGHT: pane_move_right(pane); break;
-        case KEY_BACKSPACE:
-            buffer_delete_char(buf, pane->cursor_row, pane->cursor_col,
-                               &pane->cursor_row, &pane->cursor_col);
-            editor_schedule_auto_save(ed);
-            break;
-        case KEY_DC: /* Delete */
-            buffer_delete_char_forward(buf, pane->cursor_row, pane->cursor_col);
-            editor_schedule_auto_save(ed);
-            break;
-        case KEY_BTAB: /* Shift+Tab: switch pane */
-            if (ed->pane_count > 1) {
-                history_commit_session(ed->history, buf->lines,
-                                       buf->line_lens, buf->line_count);
-                ed->active_pane_idx = (ed->active_pane_idx + 1) % ed->pane_count;
-                Pane *np = editor_active_pane(ed);
-                history_start_session(ed->history, np->buffer,
-                                      np->cursor_row, np->cursor_col);
-            }
-            break;
-        case KEY_PPAGE:
-            ed->screen->get_size(ed->screen->impl, &width, &height);
-            pane_page_up(pane, height);
-            break;
-        case KEY_NPAGE:
-            ed->screen->get_size(ed->screen->impl, &width, &height);
-            pane_page_down(pane, height);
-            break;
+    switch (ev->key) {
+    case KEY_UP:
+        dismiss_ac(ed);
+        pane_move_up(pane);
+        break;
+    case KEY_DOWN:
+        dismiss_ac(ed);
+        pane_move_down(pane);
+        break;
+    case KEY_LEFT:
+        dismiss_ac(ed);
+        pane_move_left(pane);
+        break;
+    case KEY_RIGHT:
+        dismiss_ac(ed);
+        pane_move_right(pane);
+        break;
+    case KEY_BACKSPACE:
+        buffer_delete_char(buf, pane->cursor_row, pane->cursor_col,
+                           &pane->cursor_row, &pane->cursor_col);
+        editor_schedule_auto_save(ed);
+        editor_trigger_autocomplete(ed);
+        break;
+    case KEY_DC:
+        dismiss_ac(ed);
+        buffer_delete_char_forward(buf, pane->cursor_row, pane->cursor_col);
+        editor_schedule_auto_save(ed);
+        break;
+    case KEY_BTAB:
+        if (ed->pane_count > 1) {
+            history_commit_session(ed->history, buf->lines,
+                                   buf->line_lens, buf->line_count);
+            ed->active_pane_idx = (ed->active_pane_idx + 1) % ed->pane_count;
+            Pane *np = editor_active_pane(ed);
+            history_start_session(ed->history, np->buffer,
+                                  np->cursor_row, np->cursor_col);
         }
-        return false;
+        break;
+    case KEY_PPAGE:
+        dismiss_ac(ed);
+        ed->screen->get_size(ed->screen->impl, &width, &height);
+        pane_page_up(pane, height);
+        break;
+    case KEY_NPAGE:
+        dismiss_ac(ed);
+        ed->screen->get_size(ed->screen->impl, &width, &height);
+        pane_page_down(pane, height);
+        break;
     }
+}
 
-    /* Character keys */
-    wchar_t ch = ev->ch;
+static void handle_char_keys(Editor *ed, wchar_t ch) {
+    Pane *pane = editor_active_pane(ed);
+    Buffer *buf = pane->buffer;
+    int height = 0, width = 0;
 
     if (ch == 27) { /* Escape */
+        dismiss_ac(ed);
         ed->mode = MODE_NORMAL;
         history_commit_session(ed->history, buf->lines,
                                buf->line_lens, buf->line_count);
         input_state_reset(ed->input_state);
         if (pane->cursor_col > 0) pane->cursor_col--;
-        return false;
+        return;
     }
 
     if (ch == 127 || ch == 8) { /* Backspace */
         buffer_delete_char(buf, pane->cursor_row, pane->cursor_col,
                            &pane->cursor_row, &pane->cursor_col);
         editor_schedule_auto_save(ed);
-        return false;
+        editor_trigger_autocomplete(ed);
+        return;
     }
 
     if (ch == L'\n' || ch == L'\r') { /* Enter */
+        dismiss_ac(ed);
         buffer_insert_newline_with_indent(buf, pane->cursor_row, pane->cursor_col,
                                          &pane->cursor_row, &pane->cursor_col);
         editor_schedule_auto_save(ed);
-        return false;
+        return;
     }
 
-    if (ch == L'\t') { /* Tab */
+    if (ch == L'\t') { /* Tab (no AC active — AC tab handled earlier) */
         pane->cursor_col = buffer_insert_tab(buf, pane->cursor_row,
                                              pane->cursor_col);
         editor_schedule_auto_save(ed);
-        return false;
+        editor_trigger_autocomplete(ed);
+        return;
     }
 
     if (ch == 4) { /* Ctrl+D */
+        dismiss_ac(ed);
         ed->screen->get_size(ed->screen->impl, &width, &height);
         pane_page_down(pane, height);
-        return false;
+        return;
     }
 
     if (ch == 21) { /* Ctrl+U */
+        dismiss_ac(ed);
         ed->screen->get_size(ed->screen->impl, &width, &height);
         pane_page_up(pane, height);
-        return false;
+        return;
     }
 
     /* Regular character */
-    if (ch >= 32) { /* Printable */
+    if (ch >= 32) {
         pane->cursor_col = buffer_insert_char(buf, pane->cursor_row,
                                               pane->cursor_col, ch);
         editor_schedule_auto_save(ed);
+        editor_trigger_autocomplete(ed);
     }
+}
+
+bool handle_insert_mode(Editor *ed, EditorEvent *ev) {
+    if (ev->type != EV_KEY) return false;
+
+    /* Autocomplete navigation takes priority */
+    if (handle_ac_keys(ed, ev)) return false;
+
+    if (!ev->is_char)
+        handle_special_keys(ed, ev);
+    else
+        handle_char_keys(ed, ev->ch);
 
     return false;
 }

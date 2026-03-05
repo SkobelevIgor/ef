@@ -3,6 +3,7 @@
 #include "runes.h"
 #include "syntax.h"
 #include "widget.h"
+#include "autocomplete.h"
 
 #include <locale.h>
 #include <ncurses.h>
@@ -166,6 +167,67 @@ static bool is_in_match(const SearchMatch *matches, int count,
         }
     }
     return false;
+}
+
+/* --- Autocomplete dropdown ----------------------------------------------- */
+
+static void render_autocomplete(AutocompleteState *ac,
+                                 int cursor_x, int cursor_y, int max_y) {
+    if (!ac || !ac->active || ac->suggestion_count == 0) return;
+
+    int max_w = 0;
+    for (int i = 0; i < ac->suggestion_count; i++)
+        if (ac->suggestions[i].word_len > max_w)
+            max_w = ac->suggestions[i].word_len;
+
+    int pad = 2;
+    int drop_w = max_w + pad * 2;
+    int drop_h = ac->suggestion_count;
+    int space_below = max_y - cursor_y - 1;
+    int start_y;
+
+    if (space_below >= drop_h) {
+        start_y = cursor_y + 1;
+    } else if (cursor_y >= drop_h) {
+        start_y = cursor_y - drop_h;
+    } else if (space_below > cursor_y) {
+        start_y = cursor_y + 1;
+        drop_h = space_below;
+    } else {
+        drop_h = cursor_y;
+        start_y = 0;
+    }
+    if (drop_h <= 0) return;
+
+    int display = drop_h < ac->suggestion_count ? drop_h : ac->suggestion_count;
+
+    for (int i = 0; i < display; i++) {
+        int y = start_y + i;
+        bool selected = (i == ac->selected_idx);
+        int pair = selected ? PAIR_AUTOCOMPLETE_SELECTED
+                            : PAIR_AUTOCOMPLETE_NORMAL;
+        attron(COLOR_PAIR(pair));
+
+        /* Left padding */
+        for (int p = 0; p < pad; p++)
+            mvaddch(y, cursor_x + p, ' ');
+
+        /* Word */
+        int x = cursor_x + pad;
+        for (int c = 0; c < ac->suggestions[i].word_len; c++) {
+            cchar_t cc;
+            wchar_t wch[2] = {ac->suggestions[i].word[c], L'\0'};
+            setcchar(&cc, wch, A_NORMAL, pair, NULL);
+            mvadd_wch(y, x + c, &cc);
+        }
+
+        /* Right padding */
+        int filled = pad + ac->suggestions[i].word_len;
+        for (int p = filled; p < drop_w; p++)
+            mvaddch(y, cursor_x + p, ' ');
+
+        attroff(COLOR_PAIR(pair));
+    }
 }
 
 /* --- NcursesScreen implementation ---------------------------------------- */
@@ -399,6 +461,17 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                                    ap->buffer->config.tab_stop, &cx, &cy);
             move(al->start_y + active_bar_h + cy, al->start_x + cx);
             curs_set(1);
+
+            /* Render autocomplete dropdown */
+            if (input && input->autocomplete && input->autocomplete->active) {
+                int pane_max_y = al->start_y + al->height;
+                render_autocomplete(input->autocomplete,
+                                    al->start_x + cx,
+                                    al->start_y + active_bar_h + cy,
+                                    pane_max_y);
+                /* Restore cursor after overlay */
+                move(al->start_y + active_bar_h + cy, al->start_x + cx);
+            }
         }
     }
 
