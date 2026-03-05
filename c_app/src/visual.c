@@ -138,10 +138,25 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
     case L'y': {
         int sr, sc, er, ec;
         pane_get_selection(pane, &sr, &sc, &er, &ec);
-        int *rlens; int rcount;
-        wchar_t **range = buffer_get_range(buf, sr, sc, er, ec, &rlens, &rcount);
-        clipboard_set(ed->clipboard, range, rlens, rcount, false);
-        buffer_free_lines(range, rlens, rcount);
+        if (sr != er) {
+            /* Multi-row: yank full lines in line-mode */
+            int count = er - sr + 1;
+            wchar_t **lines = malloc(sizeof(wchar_t *) * count);
+            int *lens = malloc(sizeof(int) * count);
+            for (int i = 0; i < count; i++)
+                lines[i] = buffer_copy_line(buf, sr + i, &lens[i]);
+            clipboard_set(ed->clipboard, lines, lens, count, true);
+            for (int i = 0; i < count; i++) free(lines[i]);
+            free(lines);
+            free(lens);
+        } else {
+            /* Single-row: char-mode yank */
+            int *rlens; int rcount;
+            wchar_t **range = buffer_get_range(buf, sr, sc, er, ec,
+                                               &rlens, &rcount);
+            clipboard_set(ed->clipboard, range, rlens, rcount, false);
+            buffer_free_lines(range, rlens, rcount);
+        }
         ed->mode = MODE_NORMAL;
         pane_clear_selection(pane);
         input_state_reset(is);
