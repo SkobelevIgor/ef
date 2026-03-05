@@ -166,7 +166,7 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
     case L'F':
         is->pending_find_backward = true;
         return true;
-    case L';':
+    case L'n':
         if (is->has_last_find) {
             for (int i = 0; i < count; i++) {
                 if (is->last_find_forward)
@@ -176,7 +176,7 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
             }
         }
         break;
-    case L',':
+    case L'N':
         if (is->has_last_find) {
             for (int i = 0; i < count; i++) {
                 if (is->last_find_forward)

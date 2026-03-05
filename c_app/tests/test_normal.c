@@ -207,6 +207,33 @@ void test_find_char_f(void) {
     TEST_ASSERT_EQUAL_INT(3, editor_active_pane(ed)->cursor_col);
 }
 
+void test_find_char_n_repeat(void) {
+    const wchar_t *lines[] = {L"abcdbcf"};
+    setup_editor(lines, 1);
+
+    send_char(L'f');
+    send_char(L'c');
+    TEST_ASSERT_EQUAL_INT(2, editor_active_pane(ed)->cursor_col);
+
+    send_char(L'n');
+    TEST_ASSERT_EQUAL_INT(5, editor_active_pane(ed)->cursor_col);
+}
+
+void test_find_char_N_reverse(void) {
+    const wchar_t *lines[] = {L"abcdbcf"};
+    setup_editor(lines, 1);
+
+    send_char(L'f');
+    send_char(L'c');
+    TEST_ASSERT_EQUAL_INT(2, editor_active_pane(ed)->cursor_col);
+
+    send_char(L'n');
+    TEST_ASSERT_EQUAL_INT(5, editor_active_pane(ed)->cursor_col);
+
+    send_char(L'N');
+    TEST_ASSERT_EQUAL_INT(2, editor_active_pane(ed)->cursor_col);
+}
+
 void test_word_navigation_w(void) {
     const wchar_t *lines[] = {L"hello world"};
     setup_editor(lines, 1);
@@ -242,6 +269,8 @@ int main(void) {
     RUN_TEST(test_G_goes_to_last_line);
     RUN_TEST(test_g_goes_to_first_line);
     RUN_TEST(test_find_char_f);
+    RUN_TEST(test_find_char_n_repeat);
+    RUN_TEST(test_find_char_N_reverse);
     RUN_TEST(test_word_navigation_w);
     RUN_TEST(test_word_navigation_b);
     return UNITY_END();

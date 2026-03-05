@@ -122,13 +122,13 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
     case L'F':
         is->pending_find_backward = true;
         break;
-    case L';':
+    case L'n':
         if (is->has_last_find) {
             if (is->last_find_forward) pane_find_char_forward(pane, is->last_find_char);
             else pane_find_char_backward(pane, is->last_find_char);
         }
         break;
-    case L',':
+    case L'N':
         if (is->has_last_find) {
             if (is->last_find_forward) pane_find_char_backward(pane, is->last_find_char);
             else pane_find_char_forward(pane, is->last_find_char);
