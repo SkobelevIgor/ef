@@ -17,9 +17,32 @@ static bool handle_ac_keys(Editor *ed, EditorEvent *ev) {
 
     /* Character keys when AC active */
     if (ev->is_char) {
+        if (ev->ch == 27) { /* Escape — dismiss popup, stay in insert */
+            dismiss_ac(ed);
+            return true;
+        }
         if (ev->ch == L'\t') {
             editor_accept_autocomplete(ed);
             return true;
+        }
+        if (ev->ch == 14) { /* Ctrl+N */
+            ac_next(ac);
+            return true;
+        }
+        if (ev->ch == 16) { /* Ctrl+P */
+            ac_prev(ac);
+            return true;
+        }
+        if (ev->ch == L'\n' || ev->ch == L'\r') {
+            Suggestion *sel = ac_selected(ac);
+            if (sel && (sel->word_len != ac->prefix_len ||
+                        wmemcmp(sel->word, ac->prefix,
+                                ac->prefix_len) != 0)) {
+                editor_accept_autocomplete(ed);
+                return true;
+            }
+            dismiss_ac(ed);
+            return false; /* fall through to newline */
         }
         return false; /* fall through to normal insert handling */
     }

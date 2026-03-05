@@ -149,7 +149,7 @@ void test_tab_accepts_autocomplete(void) {
     TEST_ASSERT_TRUE(buf->line_lens[1] > 2);
 }
 
-void test_escape_dismisses_autocomplete(void) {
+void test_escape_dismisses_autocomplete_stays_insert(void) {
     const wchar_t *lines[] = {L"hello help hero", L""};
     setup_editor(lines, 2);
     Pane *p = editor_active_pane(ed);
@@ -162,7 +162,8 @@ void test_escape_dismisses_autocomplete(void) {
 
     send_char(27); /* Escape */
     TEST_ASSERT_NULL(ed->input_state->autocomplete);
-    TEST_ASSERT_EQUAL_INT(MODE_NORMAL, ed->mode);
+    TEST_ASSERT_EQUAL_INT(MODE_INSERT, ed->mode); /* stays in insert */
+    TEST_ASSERT_EQUAL_INT(2, p->cursor_col);      /* cursor unchanged */
 }
 
 void test_arrow_dismisses_autocomplete(void) {
@@ -216,7 +217,7 @@ void test_backspace_retriggers_autocomplete(void) {
     TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
 }
 
-void test_enter_dismisses_autocomplete(void) {
+void test_enter_accepts_autocomplete(void) {
     const wchar_t *lines[] = {L"hello help hero", L""};
     setup_editor(lines, 2);
     Pane *p = editor_active_pane(ed);
@@ -229,6 +230,49 @@ void test_enter_dismisses_autocomplete(void) {
 
     send_char(L'\n');
     TEST_ASSERT_NULL(ed->input_state->autocomplete);
+    /* Enter should accept suggestion — word completed, no newline inserted */
+    TEST_ASSERT_TRUE(buf->line_lens[1] > 2);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count); /* no newline inserted */
+}
+
+void test_ctrl_n_navigates_autocomplete_down(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    send_char(L'h');
+    send_char(L'e');
+    AutocompleteState *ac = ed->input_state->autocomplete;
+    TEST_ASSERT_NOT_NULL(ac);
+    TEST_ASSERT_EQUAL_INT(0, ac->selected_idx);
+
+    send_char(14); /* Ctrl+N */
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+    TEST_ASSERT_EQUAL_INT(1, ed->input_state->autocomplete->selected_idx);
+    TEST_ASSERT_EQUAL_INT(1, p->cursor_row); /* cursor didn't move */
+}
+
+void test_ctrl_p_navigates_autocomplete_up(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    send_char(L'h');
+    send_char(L'e');
+    AutocompleteState *ac = ed->input_state->autocomplete;
+    TEST_ASSERT_NOT_NULL(ac);
+    int count = ac->suggestion_count;
+    TEST_ASSERT_TRUE(count > 1);
+
+    send_char(16); /* Ctrl+P */
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+    /* Wraps around to last suggestion */
+    TEST_ASSERT_EQUAL_INT(count - 1, ed->input_state->autocomplete->selected_idx);
+    TEST_ASSERT_EQUAL_INT(1, p->cursor_row); /* cursor didn't move */
 }
 
 int main(void) {
@@ -242,10 +286,12 @@ int main(void) {
     RUN_TEST(test_insert_tab_literal);
     RUN_TEST(test_typing_triggers_autocomplete);
     RUN_TEST(test_tab_accepts_autocomplete);
-    RUN_TEST(test_escape_dismisses_autocomplete);
+    RUN_TEST(test_escape_dismisses_autocomplete_stays_insert);
     RUN_TEST(test_arrow_dismisses_autocomplete);
     RUN_TEST(test_down_navigates_autocomplete);
     RUN_TEST(test_backspace_retriggers_autocomplete);
-    RUN_TEST(test_enter_dismisses_autocomplete);
+    RUN_TEST(test_enter_accepts_autocomplete);
+    RUN_TEST(test_ctrl_n_navigates_autocomplete_down);
+    RUN_TEST(test_ctrl_p_navigates_autocomplete_up);
     return UNITY_END();
 }
