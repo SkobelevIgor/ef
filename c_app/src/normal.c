@@ -9,6 +9,7 @@
 /* Forward declarations for sub-handlers */
 static bool handle_goto_line_input(Editor *ed, EditorEvent *ev);
 static bool handle_find_char_input(Editor *ed, EditorEvent *ev);
+static bool handle_mark_input(Editor *ed, EditorEvent *ev);
 static bool handle_normal_rune(Editor *ed, wchar_t r);
 static void handle_pending_operator(Editor *ed, wchar_t r);
 
@@ -26,6 +27,11 @@ bool handle_normal_mode(Editor *ed, EditorEvent *ev) {
     /* Pending find char */
     if (is->pending_find_forward || is->pending_find_backward) {
         return handle_find_char_input(ed, ev);
+    }
+
+    /* Pending mark set/jump */
+    if (is->pending_mark || is->pending_jump_to_mark) {
+        return handle_mark_input(ed, ev);
     }
 
     if (ev->type != EV_KEY) return false;
@@ -258,6 +264,14 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
     case L'u':
         editor_undo(ed);
         break;
+
+    /* Marks */
+    case L'm':
+        is->pending_mark = true;
+        return true;
+    case L'`':
+        is->pending_jump_to_mark = true;
+        return true;
     }
 
     return false;
@@ -374,6 +388,65 @@ static void handle_pending_operator(Editor *ed, wchar_t r) {
             editor_schedule_auto_save(ed);
         }
     }
+}
+
+static bool is_valid_mark_id(wchar_t ch) {
+    return (ch >= L'a' && ch <= L'z')
+        || (ch >= L'A' && ch <= L'Z')
+        || (ch >= L'0' && ch <= L'9');
+}
+
+static bool handle_mark_input(Editor *ed, EditorEvent *ev) {
+    InputState *is = ed->input_state;
+
+    if (ev->is_char && ev->ch == 27) { /* Escape */
+        is->pending_mark = false;
+        is->pending_jump_to_mark = false;
+        input_state_reset(is);
+        return false;
+    }
+    if (!ev->is_char) {
+        is->pending_mark = false;
+        is->pending_jump_to_mark = false;
+        input_state_reset(is);
+        return false;
+    }
+
+    wchar_t ch = ev->ch;
+    if (!is_valid_mark_id(ch)) {
+        is->pending_mark = false;
+        is->pending_jump_to_mark = false;
+        input_state_reset(is);
+        return false;
+    }
+
+    int idx = (int)ch; /* ASCII value as index */
+    if (is->pending_mark) {
+        Pane *pane = editor_active_pane(ed);
+        ed->marks[idx].set = true;
+        ed->marks[idx].buffer = pane->buffer;
+        ed->marks[idx].row = pane->cursor_row;
+        ed->marks[idx].col = pane->cursor_col;
+    } else if (is->pending_jump_to_mark) {
+        GlobalMark *m = &ed->marks[idx];
+        if (m->set) {
+            /* Find pane with this buffer */
+            for (int i = 0; i < ed->pane_count; i++) {
+                if (ed->panes[i]->buffer == m->buffer) {
+                    ed->active_pane_idx = i;
+                    Pane *p = ed->panes[i];
+                    p->cursor_row = m->row;
+                    p->cursor_col = m->col;
+                    pane_clamp_cursor(p);
+                    break;
+                }
+            }
+        }
+    }
+    is->pending_mark = false;
+    is->pending_jump_to_mark = false;
+    input_state_reset(is);
+    return false;
 }
 
 static bool handle_find_char_input(Editor *ed, EditorEvent *ev) {

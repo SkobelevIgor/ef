@@ -234,6 +234,119 @@ void test_find_char_N_reverse(void) {
     TEST_ASSERT_EQUAL_INT(2, editor_active_pane(ed)->cursor_col);
 }
 
+void test_set_mark_and_jump(void) {
+    const wchar_t *lines[] = {L"hello", L"world", L"test"};
+    setup_editor(lines, 3);
+    Pane *p = editor_active_pane(ed);
+
+    /* Move to (1,3) and set mark 'a' */
+    p->cursor_row = 1;
+    p->cursor_col = 3;
+    send_char(L'm');
+    send_char(L'a');
+
+    /* Move away */
+    p->cursor_row = 0;
+    p->cursor_col = 0;
+
+    /* Jump to mark 'a' */
+    send_char(L'`');
+    send_char(L'a');
+    TEST_ASSERT_EQUAL_INT(1, p->cursor_row);
+    TEST_ASSERT_EQUAL_INT(3, p->cursor_col);
+}
+
+void test_jump_to_unset_mark(void) {
+    const wchar_t *lines[] = {L"hello"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 0;
+    p->cursor_col = 2;
+
+    send_char(L'`');
+    send_char(L'z');
+    /* Cursor should not move */
+    TEST_ASSERT_EQUAL_INT(0, p->cursor_row);
+    TEST_ASSERT_EQUAL_INT(2, p->cursor_col);
+}
+
+void test_mark_invalid_id_ignored(void) {
+    const wchar_t *lines[] = {L"hello"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_col = 2;
+
+    send_char(L'm');
+    send_char(L'!'); /* invalid */
+    /* Should not crash, pending_mark should be cleared */
+    TEST_ASSERT_FALSE(ed->input_state->pending_mark);
+}
+
+void test_mark_clamps_after_lines_deleted(void) {
+    const wchar_t *lines[] = {L"aaa", L"bbb", L"ccc"};
+    setup_editor(lines, 3);
+    Pane *p = editor_active_pane(ed);
+
+    /* Set mark at row 2, col 1 */
+    p->cursor_row = 2;
+    p->cursor_col = 1;
+    send_char(L'm');
+    send_char(L'a');
+
+    /* Delete row 2 (dd at row 2) */
+    p->cursor_row = 2;
+    send_char(L'd');
+    send_char(L'd');
+    /* Now only 2 rows left (0,1) */
+
+    /* Jump to mark — row should clamp to last row */
+    p->cursor_row = 0;
+    p->cursor_col = 0;
+    send_char(L'`');
+    send_char(L'a');
+    TEST_ASSERT_EQUAL_INT(1, p->cursor_row);
+}
+
+void test_mark_digits_and_uppercase(void) {
+    const wchar_t *lines[] = {L"abcdef"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+
+    /* Set mark '0' at col 3 */
+    p->cursor_col = 3;
+    send_char(L'm');
+    send_char(L'0');
+
+    /* Set mark 'Z' at col 5 */
+    p->cursor_col = 5;
+    send_char(L'm');
+    send_char(L'Z');
+
+    /* Jump to '0' */
+    p->cursor_col = 0;
+    send_char(L'`');
+    send_char(L'0');
+    TEST_ASSERT_EQUAL_INT(3, p->cursor_col);
+
+    /* Jump to 'Z' */
+    send_char(L'`');
+    send_char(L'Z');
+    TEST_ASSERT_EQUAL_INT(5, p->cursor_col);
+}
+
+void test_mark_escape_cancels(void) {
+    const wchar_t *lines[] = {L"hello"};
+    setup_editor(lines, 1);
+
+    send_char(L'm');
+    TEST_ASSERT_TRUE(ed->input_state->pending_mark);
+
+    /* Escape cancels */
+    EditorEvent esc = {EV_KEY, 27, 27, true};
+    editor_handle_key(ed, &esc);
+    TEST_ASSERT_FALSE(ed->input_state->pending_mark);
+}
+
 void test_word_navigation_w(void) {
     const wchar_t *lines[] = {L"hello world"};
     setup_editor(lines, 1);
@@ -271,6 +384,12 @@ int main(void) {
     RUN_TEST(test_find_char_f);
     RUN_TEST(test_find_char_n_repeat);
     RUN_TEST(test_find_char_N_reverse);
+    RUN_TEST(test_set_mark_and_jump);
+    RUN_TEST(test_jump_to_unset_mark);
+    RUN_TEST(test_mark_invalid_id_ignored);
+    RUN_TEST(test_mark_clamps_after_lines_deleted);
+    RUN_TEST(test_mark_digits_and_uppercase);
+    RUN_TEST(test_mark_escape_cancels);
     RUN_TEST(test_word_navigation_w);
     RUN_TEST(test_word_navigation_b);
     return UNITY_END();

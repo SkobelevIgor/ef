@@ -18,6 +18,14 @@
 
 #define MAX_PANES    16
 #define MAX_BUFFERS  64
+#define MAX_MARKS    128
+
+typedef struct {
+    bool    set;
+    Buffer *buffer;
+    int     row;
+    int     col;
+} GlobalMark;
 
 typedef struct {
     char *filename;
@@ -39,6 +47,7 @@ typedef struct Editor {
     InputState   *input_state;
     Clipboard    *clipboard;
     History      *history;
+    GlobalMark    marks[MAX_MARKS];
 
     struct timespec last_shift_time;
     bool            has_last_shift;
