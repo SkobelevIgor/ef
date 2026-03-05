@@ -11,3 +11,16 @@ main
 test*.txt
 
 ignore
+
+# C build artifacts
+c_app/build*/
+*.o
+*.a
+*.so
+*.exe
+*.gcda
+*.gcno
+*.gcov
+coverage.info
+coverage-html/
+.DS_Store

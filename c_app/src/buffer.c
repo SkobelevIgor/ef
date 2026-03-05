@@ -1,0 +1,744 @@
+#include "buffer.h"
+#include "syntax.h"
+#include "runes.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <locale.h>
+
+/* --- Internal helpers ---------------------------------------------------- */
+
+static wchar_t *wcsdup_safe(const wchar_t *src, int len) {
+    wchar_t *dst = malloc(sizeof(wchar_t) * (len + 1));
+    if (!dst) return NULL;
+    wmemcpy(dst, src, len);
+    dst[len] = L'\0';
+    return dst;
+}
+
+static void get_leading_whitespace(const wchar_t *line, int len,
+                                   wchar_t **out, int *out_len) {
+    int i = 0;
+    while (i < len && is_whitespace(line[i])) i++;
+    *out_len = i;
+    if (i == 0) { *out = NULL; return; }
+    *out = wcsdup_safe(line, i);
+}
+
+/* --- Lifecycle ----------------------------------------------------------- */
+
+Buffer *buffer_new(void) {
+    Buffer *buf = calloc(1, sizeof(Buffer));
+    if (!buf) return NULL;
+    buf->config.tab_stop = DEFAULT_TAB_STOP;
+    buf->config.shift_width = DEFAULT_TAB_STOP;
+    /* Start with one empty line */
+    buffer_ensure_lines(buf, 1);
+    buf->lines[0] = wcsdup_safe(L"", 0);
+    buf->line_lens[0] = 0;
+    buf->line_caps[0] = 1;
+    buf->line_count = 1;
+    return buf;
+}
+
+Buffer *buffer_new_from_file(const char *filename) {
+    Buffer *buf = buffer_new();
+    if (!buf) return NULL;
+    buf->filename = strdup(filename);
+    struct stat st;
+    if (stat(filename, &st) == 0) {
+        if (buffer_load(buf) != 0) {
+            buffer_free(buf);
+            return NULL;
+        }
+    }
+    return buf;
+}
+
+void buffer_free(Buffer *buf) {
+    if (!buf) return;
+    for (int i = 0; i < buf->line_count; i++) {
+        free(buf->lines[i]);
+    }
+    free(buf->lines);
+    free(buf->line_lens);
+    free(buf->line_caps);
+    free(buf->filename);
+    free(buf->file_type);
+    highlight_cache_free(buf->highlight_cache);
+    free(buf);
+}
+
+/* --- Capacity ------------------------------------------------------------ */
+
+void buffer_ensure_lines(Buffer *buf, int n) {
+    if (n <= buf->line_alloc) return;
+    int new_alloc = buf->line_alloc == 0 ? 16 : buf->line_alloc;
+    while (new_alloc < n) new_alloc *= 2;
+    buf->lines = realloc(buf->lines, sizeof(wchar_t *) * new_alloc);
+    buf->line_lens = realloc(buf->line_lens, sizeof(int) * new_alloc);
+    buf->line_caps = realloc(buf->line_caps, sizeof(int) * new_alloc);
+    for (int i = buf->line_alloc; i < new_alloc; i++) {
+        buf->lines[i] = NULL;
+        buf->line_lens[i] = 0;
+        buf->line_caps[i] = 0;
+    }
+    buf->line_alloc = new_alloc;
+}
+
+void buffer_set_line(Buffer *buf, int row, wchar_t *line, int len) {
+    free(buf->lines[row]);
+    buf->lines[row] = line;
+    buf->line_lens[row] = len;
+    buf->line_caps[row] = len + 1;
+}
+
+/* --- Splice -------------------------------------------------------------- */
+
+void buffer_splice_lines(Buffer *buf, int start, int delete_count,
+                         wchar_t **insert, int *insert_lens, int insert_count) {
+    /* Free deleted lines */
+    for (int i = start; i < start + delete_count && i < buf->line_count; i++) {
+        free(buf->lines[i]);
+    }
+
+    int new_count = buf->line_count - delete_count + insert_count;
+    buffer_ensure_lines(buf, new_count);
+
+    /* Shift lines after deleted region */
+    int tail_start = start + delete_count;
+    int tail_count = buf->line_count - tail_start;
+    if (tail_count > 0) {
+        memmove(buf->lines + start + insert_count,
+                buf->lines + tail_start,
+                sizeof(wchar_t *) * tail_count);
+        memmove(buf->line_lens + start + insert_count,
+                buf->line_lens + tail_start,
+                sizeof(int) * tail_count);
+        memmove(buf->line_caps + start + insert_count,
+                buf->line_caps + tail_start,
+                sizeof(int) * tail_count);
+    }
+
+    /* Insert new lines */
+    for (int i = 0; i < insert_count; i++) {
+        buf->lines[start + i] = insert[i];
+        buf->line_lens[start + i] = insert_lens[i];
+        buf->line_caps[start + i] = insert_lens[i] + 1;
+    }
+
+    buf->line_count = new_count;
+}
+
+/* --- File I/O ------------------------------------------------------------ */
+
+int buffer_load(Buffer *buf) {
+    FILE *f = fopen(buf->filename, "r");
+    if (!f) return -1;
+
+    /* Free existing lines */
+    for (int i = 0; i < buf->line_count; i++) {
+        free(buf->lines[i]);
+    }
+    buf->line_count = 0;
+
+    char mb_buf[8192];
+    while (fgets(mb_buf, sizeof(mb_buf), f)) {
+        /* Strip trailing newline */
+        size_t mb_len = strlen(mb_buf);
+        if (mb_len > 0 && mb_buf[mb_len - 1] == '\n') {
+            mb_buf[--mb_len] = '\0';
+        }
+        if (mb_len > 0 && mb_buf[mb_len - 1] == '\r') {
+            mb_buf[--mb_len] = '\0';
+        }
+
+        /* Convert to wide chars */
+        size_t wlen = mbstowcs(NULL, mb_buf, 0);
+        if (wlen == (size_t)-1) wlen = 0;
+        wchar_t *wline = malloc(sizeof(wchar_t) * (wlen + 1));
+        if (wlen > 0) {
+            mbstowcs(wline, mb_buf, wlen + 1);
+        }
+        wline[wlen] = L'\0';
+
+        buffer_ensure_lines(buf, buf->line_count + 1);
+        buf->lines[buf->line_count] = wline;
+        buf->line_lens[buf->line_count] = (int)wlen;
+        buf->line_caps[buf->line_count] = (int)(wlen + 1);
+        buf->line_count++;
+    }
+
+    fclose(f);
+
+    if (buf->line_count == 0) {
+        buffer_ensure_lines(buf, 1);
+        buf->lines[0] = wcsdup_safe(L"", 0);
+        buf->line_lens[0] = 0;
+        buf->line_caps[0] = 1;
+        buf->line_count = 1;
+    }
+
+    struct stat st;
+    if (stat(buf->filename, &st) == 0) {
+        buf->last_mod_time = st.st_mtime;
+    }
+
+    buf->modified = false;
+    return 0;
+}
+
+int buffer_save(Buffer *buf) {
+    if (!buf->filename) return -1;
+    FILE *f = fopen(buf->filename, "w");
+    if (!f) return -1;
+
+    char mb_buf[8192];
+    for (int i = 0; i < buf->line_count; i++) {
+        size_t n = wcstombs(mb_buf, buf->lines[i], sizeof(mb_buf) - 1);
+        if (n == (size_t)-1) n = 0;
+        mb_buf[n] = '\0';
+        fputs(mb_buf, f);
+        if (i < buf->line_count - 1) {
+            fputc('\n', f);
+        }
+    }
+
+    fclose(f);
+
+    struct stat st;
+    if (stat(buf->filename, &st) == 0) {
+        buf->last_mod_time = st.st_mtime;
+    }
+
+    buf->modified = false;
+    return 0;
+}
+
+/* --- Mutations ----------------------------------------------------------- */
+
+int buffer_insert_char(Buffer *buf, int row, int col, wchar_t ch) {
+    int new_len;
+    wchar_t *new_line = insert_runes(buf->lines[row], buf->line_lens[row],
+                                     col, &ch, 1, &new_len);
+    buffer_set_line(buf, row, new_line, new_len);
+    buf->modified = true;
+    buf->mod_count++;
+    return col + 1;
+}
+
+void buffer_delete_char(Buffer *buf, int row, int col,
+                        int *new_row, int *new_col) {
+    if (col > 0) {
+        int new_len;
+        wchar_t *new_line = remove_runes(buf->lines[row], buf->line_lens[row],
+                                         col - 1, col, &new_len);
+        buffer_set_line(buf, row, new_line, new_len);
+        buf->modified = true;
+        buf->mod_count++;
+        *new_row = row;
+        *new_col = col - 1;
+    } else if (row > 0) {
+        /* Join with previous line */
+        int prev_len = buf->line_lens[row - 1];
+        int curr_len = buf->line_lens[row];
+        int merged_len = prev_len + curr_len;
+        wchar_t *merged = malloc(sizeof(wchar_t) * (merged_len + 1));
+        wmemcpy(merged, buf->lines[row - 1], prev_len);
+        wmemcpy(merged + prev_len, buf->lines[row], curr_len);
+        merged[merged_len] = L'\0';
+        buffer_set_line(buf, row - 1, merged, merged_len);
+        /* Remove current line */
+        free(buf->lines[row]);
+        memmove(buf->lines + row, buf->lines + row + 1,
+                sizeof(wchar_t *) * (buf->line_count - row - 1));
+        memmove(buf->line_lens + row, buf->line_lens + row + 1,
+                sizeof(int) * (buf->line_count - row - 1));
+        memmove(buf->line_caps + row, buf->line_caps + row + 1,
+                sizeof(int) * (buf->line_count - row - 1));
+        buf->line_count--;
+        buf->modified = true;
+        buf->mod_count++;
+        *new_row = row - 1;
+        *new_col = prev_len;
+    } else {
+        *new_row = row;
+        *new_col = col;
+    }
+}
+
+void buffer_delete_char_forward(Buffer *buf, int row, int col) {
+    if (col < buf->line_lens[row]) {
+        int new_len;
+        wchar_t *new_line = remove_runes(buf->lines[row], buf->line_lens[row],
+                                         col, col + 1, &new_len);
+        buffer_set_line(buf, row, new_line, new_len);
+        buf->modified = true;
+        buf->mod_count++;
+    } else if (row < buf->line_count - 1) {
+        /* Join with next line */
+        int curr_len = buf->line_lens[row];
+        int next_len = buf->line_lens[row + 1];
+        int merged_len = curr_len + next_len;
+        wchar_t *merged = malloc(sizeof(wchar_t) * (merged_len + 1));
+        wmemcpy(merged, buf->lines[row], curr_len);
+        wmemcpy(merged + curr_len, buf->lines[row + 1], next_len);
+        merged[merged_len] = L'\0';
+        buffer_set_line(buf, row, merged, merged_len);
+        /* Remove next line */
+        free(buf->lines[row + 1]);
+        memmove(buf->lines + row + 1, buf->lines + row + 2,
+                sizeof(wchar_t *) * (buf->line_count - row - 2));
+        memmove(buf->line_lens + row + 1, buf->line_lens + row + 2,
+                sizeof(int) * (buf->line_count - row - 2));
+        memmove(buf->line_caps + row + 1, buf->line_caps + row + 2,
+                sizeof(int) * (buf->line_count - row - 2));
+        buf->line_count--;
+        buf->modified = true;
+        buf->mod_count++;
+    }
+}
+
+wchar_t buffer_delete_char_at(Buffer *buf, int row, int col) {
+    if (col >= buf->line_lens[row]) return 0;
+    wchar_t deleted = buf->lines[row][col];
+    int new_len;
+    wchar_t *new_line = remove_runes(buf->lines[row], buf->line_lens[row],
+                                     col, col + 1, &new_len);
+    buffer_set_line(buf, row, new_line, new_len);
+    buf->modified = true;
+    buf->mod_count++;
+    return deleted;
+}
+
+void buffer_insert_newline(Buffer *buf, int row, int col,
+                           int *new_row, int *new_col) {
+    wchar_t *line = buf->lines[row];
+    int line_len = buf->line_lens[row];
+
+    wchar_t *left = wcsdup_safe(line, col);
+    int right_len = line_len - col;
+    wchar_t *right = wcsdup_safe(line + col, right_len);
+
+    buffer_set_line(buf, row, left, col);
+
+    /* Insert right part as new line after row */
+    buffer_splice_lines(buf, row + 1, 0, &right, &right_len, 1);
+
+    buf->modified = true;
+    buf->mod_count++;
+    *new_row = row + 1;
+    *new_col = 0;
+}
+
+void buffer_insert_newline_with_indent(Buffer *buf, int row, int col,
+                                       int *new_row, int *new_col) {
+    wchar_t *indent = NULL;
+    int indent_len = 0;
+    if (buf->config.auto_indentation) {
+        get_leading_whitespace(buf->lines[row], buf->line_lens[row],
+                               &indent, &indent_len);
+    }
+
+    buffer_insert_newline(buf, row, col, new_row, new_col);
+
+    if (indent_len > 0 && indent) {
+        wchar_t *new_line_content = buf->lines[*new_row];
+        int new_line_len = buf->line_lens[*new_row];
+        int total = indent_len + new_line_len;
+        wchar_t *indented = malloc(sizeof(wchar_t) * (total + 1));
+        wmemcpy(indented, indent, indent_len);
+        wmemcpy(indented + indent_len, new_line_content, new_line_len);
+        indented[total] = L'\0';
+        buffer_set_line(buf, *new_row, indented, total);
+        *new_col = indent_len;
+        free(indent);
+    }
+}
+
+int buffer_insert_tab(Buffer *buf, int row, int col) {
+    if (buf->config.expand_tab) {
+        int tab_stop = buf->config.tab_stop;
+        if (tab_stop <= 0) tab_stop = DEFAULT_TAB_STOP;
+        int vis = buffer_get_visual_column(buf, buf->lines[row],
+                                           buf->line_lens[row], col);
+        int spaces = tab_stop - (vis % tab_stop);
+        for (int i = 0; i < spaces; i++) {
+            col = buffer_insert_char(buf, row, col, L' ');
+        }
+    } else {
+        col = buffer_insert_char(buf, row, col, L'\t');
+    }
+    return col;
+}
+
+void buffer_open_line_below(Buffer *buf, int row,
+                            int *new_row, int *new_col) {
+    wchar_t *indent = NULL;
+    int indent_len = 0;
+    if (buf->config.auto_indentation) {
+        get_leading_whitespace(buf->lines[row], buf->line_lens[row],
+                               &indent, &indent_len);
+    }
+
+    wchar_t *new_line;
+    if (indent_len > 0 && indent) {
+        new_line = wcsdup_safe(indent, indent_len);
+        free(indent);
+    } else {
+        new_line = wcsdup_safe(L"", 0);
+        indent_len = 0;
+    }
+
+    buffer_insert_line_after(buf, row, new_line, indent_len);
+    *new_row = row + 1;
+    *new_col = indent_len;
+}
+
+void buffer_open_line_above(Buffer *buf, int row,
+                            int *new_row, int *new_col) {
+    wchar_t *indent = NULL;
+    int indent_len = 0;
+    if (buf->config.auto_indentation) {
+        get_leading_whitespace(buf->lines[row], buf->line_lens[row],
+                               &indent, &indent_len);
+    }
+
+    wchar_t *new_line;
+    if (indent_len > 0 && indent) {
+        new_line = wcsdup_safe(indent, indent_len);
+        free(indent);
+    } else {
+        new_line = wcsdup_safe(L"", 0);
+        indent_len = 0;
+    }
+
+    buffer_insert_line_before(buf, row, new_line, indent_len);
+    *new_row = row;
+    *new_col = indent_len;
+}
+
+wchar_t *buffer_delete_line(Buffer *buf, int row, int *deleted_len) {
+    if (row < 0 || row >= buf->line_count) {
+        if (deleted_len) *deleted_len = 0;
+        return NULL;
+    }
+
+    wchar_t *deleted = wcsdup_safe(buf->lines[row], buf->line_lens[row]);
+    if (deleted_len) *deleted_len = buf->line_lens[row];
+
+    if (buf->line_count == 1) {
+        free(buf->lines[0]);
+        buf->lines[0] = wcsdup_safe(L"", 0);
+        buf->line_lens[0] = 0;
+        buf->line_caps[0] = 1;
+    } else {
+        free(buf->lines[row]);
+        memmove(buf->lines + row, buf->lines + row + 1,
+                sizeof(wchar_t *) * (buf->line_count - row - 1));
+        memmove(buf->line_lens + row, buf->line_lens + row + 1,
+                sizeof(int) * (buf->line_count - row - 1));
+        memmove(buf->line_caps + row, buf->line_caps + row + 1,
+                sizeof(int) * (buf->line_count - row - 1));
+        buf->line_count--;
+    }
+
+    buf->modified = true;
+    buf->mod_count++;
+    return deleted;
+}
+
+wchar_t *buffer_copy_line(Buffer *buf, int row, int *copy_len) {
+    if (row < 0 || row >= buf->line_count) {
+        if (copy_len) *copy_len = 0;
+        return NULL;
+    }
+    if (copy_len) *copy_len = buf->line_lens[row];
+    return wcsdup_safe(buf->lines[row], buf->line_lens[row]);
+}
+
+void buffer_insert_line_after(Buffer *buf, int row, wchar_t *line, int line_len) {
+    if (row < 0) row = 0;
+    if (row >= buf->line_count) row = buf->line_count - 1;
+    buffer_splice_lines(buf, row + 1, 0, &line, &line_len, 1);
+    buf->modified = true;
+    buf->mod_count++;
+}
+
+void buffer_insert_line_before(Buffer *buf, int row, wchar_t *line, int line_len) {
+    if (row < 0) row = 0;
+    if (row > buf->line_count) row = buf->line_count;
+    buffer_splice_lines(buf, row, 0, &line, &line_len, 1);
+    buf->modified = true;
+    buf->mod_count++;
+}
+
+/* --- Range operations ---------------------------------------------------- */
+
+wchar_t **buffer_delete_range(Buffer *buf,
+                              int sr, int sc, int er, int ec,
+                              int **deleted_lens, int *deleted_count) {
+    normalize_range(&sr, &sc, &er, &ec);
+
+    /* Clamp */
+    if (sr < 0) sr = 0;
+    if (er >= buf->line_count) er = buf->line_count - 1;
+    if (sc < 0) sc = 0;
+    if (sc > buf->line_lens[sr]) sc = buf->line_lens[sr];
+    if (ec > buf->line_lens[er]) ec = buf->line_lens[er];
+
+    /* Same line */
+    if (sr == er) {
+        int del_len = ec - sc;
+        wchar_t *del = wcsdup_safe(buf->lines[sr] + sc, del_len);
+        int new_len;
+        wchar_t *new_line = remove_runes(buf->lines[sr], buf->line_lens[sr],
+                                         sc, ec, &new_len);
+        buffer_set_line(buf, sr, new_line, new_len);
+        buf->modified = true;
+        buf->mod_count++;
+
+        *deleted_count = 1;
+        wchar_t **result = malloc(sizeof(wchar_t *));
+        result[0] = del;
+        *deleted_lens = malloc(sizeof(int));
+        (*deleted_lens)[0] = del_len;
+        return result;
+    }
+
+    /* Multi-line */
+    int count = er - sr + 1;
+    wchar_t **deleted = malloc(sizeof(wchar_t *) * count);
+    int *dlens = malloc(sizeof(int) * count);
+
+    /* First line: from sc to end */
+    int first_del = buf->line_lens[sr] - sc;
+    deleted[0] = wcsdup_safe(buf->lines[sr] + sc, first_del);
+    dlens[0] = first_del;
+
+    /* Middle lines */
+    for (int i = sr + 1; i < er; i++) {
+        deleted[i - sr] = wcsdup_safe(buf->lines[i], buf->line_lens[i]);
+        dlens[i - sr] = buf->line_lens[i];
+    }
+
+    /* Last line: from start to ec */
+    deleted[count - 1] = wcsdup_safe(buf->lines[er], ec);
+    dlens[count - 1] = ec;
+
+    /* Build merged line */
+    int merged_len = sc + buf->line_lens[er] - ec;
+    wchar_t *merged = malloc(sizeof(wchar_t) * (merged_len + 1));
+    wmemcpy(merged, buf->lines[sr], sc);
+    wmemcpy(merged + sc, buf->lines[er] + ec, buf->line_lens[er] - ec);
+    merged[merged_len] = L'\0';
+
+    buffer_splice_lines(buf, sr, count, &merged, &merged_len, 1);
+    buf->modified = true;
+    buf->mod_count++;
+
+    *deleted_count = count;
+    *deleted_lens = dlens;
+    return deleted;
+}
+
+wchar_t **buffer_get_range(Buffer *buf,
+                           int sr, int sc, int er, int ec,
+                           int **result_lens, int *result_count) {
+    normalize_range(&sr, &sc, &er, &ec);
+
+    if (sr < 0) sr = 0;
+    if (er >= buf->line_count) er = buf->line_count - 1;
+    if (sc < 0) sc = 0;
+    if (sc > buf->line_lens[sr]) sc = buf->line_lens[sr];
+    int ll = buf->line_lens[er];
+    if (ec >= ll) ec = ll - 1;
+
+    /* Same line */
+    if (sr == er) {
+        if (sc > ec || ec < 0) {
+            *result_count = 1;
+            wchar_t **r = malloc(sizeof(wchar_t *));
+            r[0] = wcsdup_safe(L"", 0);
+            *result_lens = malloc(sizeof(int));
+            (*result_lens)[0] = 0;
+            return r;
+        }
+        int len = ec - sc + 1;
+        *result_count = 1;
+        wchar_t **r = malloc(sizeof(wchar_t *));
+        r[0] = wcsdup_safe(buf->lines[sr] + sc, len);
+        *result_lens = malloc(sizeof(int));
+        (*result_lens)[0] = len;
+        return r;
+    }
+
+    /* Multi-line */
+    int count = er - sr + 1;
+    wchar_t **result = malloc(sizeof(wchar_t *) * count);
+    int *rlens = malloc(sizeof(int) * count);
+
+    /* First line: from sc to end */
+    int first_len = buf->line_lens[sr] - sc;
+    result[0] = wcsdup_safe(buf->lines[sr] + sc, first_len);
+    rlens[0] = first_len;
+
+    /* Middle lines */
+    for (int i = sr + 1; i < er; i++) {
+        result[i - sr] = wcsdup_safe(buf->lines[i], buf->line_lens[i]);
+        rlens[i - sr] = buf->line_lens[i];
+    }
+
+    /* Last line: from start to ec (inclusive) */
+    if (ec >= 0 && ec < buf->line_lens[er]) {
+        int last_len = ec + 1;
+        result[count - 1] = wcsdup_safe(buf->lines[er], last_len);
+        rlens[count - 1] = last_len;
+    } else {
+        result[count - 1] = wcsdup_safe(L"", 0);
+        rlens[count - 1] = 0;
+    }
+
+    *result_count = count;
+    *result_lens = rlens;
+    return result;
+}
+
+/* --- Indent/Unindent ----------------------------------------------------- */
+
+void buffer_indent_range(Buffer *buf, int start_row, int end_row) {
+    if (start_row > end_row) { int t = start_row; start_row = end_row; end_row = t; }
+    if (start_row < 0) start_row = 0;
+    if (end_row >= buf->line_count) end_row = buf->line_count - 1;
+
+    for (int row = start_row; row <= end_row; row++) {
+        if (buf->config.expand_tab) {
+            int sw = buffer_get_shift_width(buf);
+            int new_len = sw + buf->line_lens[row];
+            wchar_t *nl = malloc(sizeof(wchar_t) * (new_len + 1));
+            for (int i = 0; i < sw; i++) nl[i] = L' ';
+            wmemcpy(nl + sw, buf->lines[row], buf->line_lens[row]);
+            nl[new_len] = L'\0';
+            buffer_set_line(buf, row, nl, new_len);
+        } else {
+            wchar_t tab = L'\t';
+            int new_len;
+            wchar_t *nl = insert_runes(buf->lines[row], buf->line_lens[row],
+                                       0, &tab, 1, &new_len);
+            buffer_set_line(buf, row, nl, new_len);
+        }
+    }
+    buf->modified = true;
+    buf->mod_count++;
+}
+
+void buffer_unindent_range(Buffer *buf, int start_row, int end_row) {
+    if (start_row > end_row) { int t = start_row; start_row = end_row; end_row = t; }
+    if (start_row < 0) start_row = 0;
+    if (end_row >= buf->line_count) end_row = buf->line_count - 1;
+
+    int sw = buffer_get_shift_width(buf);
+
+    for (int row = start_row; row <= end_row; row++) {
+        if (buf->line_lens[row] == 0) continue;
+        if (buf->lines[row][0] == L'\t') {
+            int new_len;
+            wchar_t *nl = remove_runes(buf->lines[row], buf->line_lens[row],
+                                       0, 1, &new_len);
+            buffer_set_line(buf, row, nl, new_len);
+        } else {
+            int spaces = 0;
+            for (int i = 0; i < buf->line_lens[row] && i < sw
+                     && buf->lines[row][i] == L' '; i++) {
+                spaces++;
+            }
+            if (spaces > 0) {
+                int new_len;
+                wchar_t *nl = remove_runes(buf->lines[row], buf->line_lens[row],
+                                           0, spaces, &new_len);
+                buffer_set_line(buf, row, nl, new_len);
+            }
+        }
+    }
+    buf->modified = true;
+    buf->mod_count++;
+}
+
+void buffer_reindent_range(Buffer *buf, int start_row, int end_row) {
+    if (start_row > end_row) { int t = start_row; start_row = end_row; end_row = t; }
+    if (start_row < 0) start_row = 0;
+    if (end_row >= buf->line_count) end_row = buf->line_count - 1;
+
+    for (int row = start_row; row <= end_row; row++) {
+        wchar_t *prev_indent = NULL;
+        int prev_indent_len = 0;
+        if (row > 0 && buf->line_lens[row - 1] > 0) {
+            get_leading_whitespace(buf->lines[row - 1], buf->line_lens[row - 1],
+                                   &prev_indent, &prev_indent_len);
+        }
+
+        /* Strip leading whitespace from current line */
+        int stripped_start = 0;
+        while (stripped_start < buf->line_lens[row]
+               && is_whitespace(buf->lines[row][stripped_start])) {
+            stripped_start++;
+        }
+        int content_len = buf->line_lens[row] - stripped_start;
+        int new_len = prev_indent_len + content_len;
+        wchar_t *nl = malloc(sizeof(wchar_t) * (new_len + 1));
+        if (prev_indent_len > 0 && prev_indent) {
+            wmemcpy(nl, prev_indent, prev_indent_len);
+        }
+        wmemcpy(nl + prev_indent_len,
+                buf->lines[row] + stripped_start, content_len);
+        nl[new_len] = L'\0';
+        buffer_set_line(buf, row, nl, new_len);
+        free(prev_indent);
+    }
+    buf->modified = true;
+    buf->mod_count++;
+}
+
+/* --- Query --------------------------------------------------------------- */
+
+int buffer_get_shift_width(const Buffer *buf) {
+    if (buf->config.shift_width > 0) return buf->config.shift_width;
+    return DEFAULT_TAB_STOP;
+}
+
+int buffer_get_visual_column(const Buffer *buf, const wchar_t *line,
+                             int line_len, int char_col) {
+    return visual_column(line, line_len, char_col, buf->config.tab_stop);
+}
+
+int buffer_get_visual_line_width(const Buffer *buf, const wchar_t *line,
+                                 int line_len) {
+    return visual_line_width(line, line_len, buf->config.tab_stop);
+}
+
+/* --- Line utilities ------------------------------------------------------ */
+
+void buffer_free_lines(wchar_t **lines, int *lens, int count) {
+    if (!lines) return;
+    for (int i = 0; i < count; i++) free(lines[i]);
+    free(lines);
+    free(lens);
+}
+
+wchar_t **buffer_copy_lines(wchar_t **lines, const int *lens, int count,
+                            int **out_lens) {
+    if (!lines || count == 0) {
+        if (out_lens) *out_lens = NULL;
+        return NULL;
+    }
+    wchar_t **result = malloc(sizeof(wchar_t *) * count);
+    int *rlens = malloc(sizeof(int) * count);
+    for (int i = 0; i < count; i++) {
+        result[i] = wcsdup_safe(lines[i], lens[i]);
+        rlens[i] = lens[i];
+    }
+    if (out_lens) *out_lens = rlens;
+    return result;
+}

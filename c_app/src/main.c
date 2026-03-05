@@ -1,0 +1,80 @@
+#include "editor.h"
+#include "log.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <locale.h>
+
+static void parse_file_arg(const char *arg, char **filename, int *line) {
+    *line = 0;
+    const char *colon = strrchr(arg, ':');
+    if (!colon || colon == arg) {
+        *filename = strdup(arg);
+        return;
+    }
+    /* Check if everything after colon is a number */
+    const char *p = colon + 1;
+    while (*p) {
+        if (*p < '0' || *p > '9') {
+            *filename = strdup(arg);
+            return;
+        }
+        p++;
+    }
+    int ln = atoi(colon + 1);
+    if (ln < 1) {
+        *filename = strdup(arg);
+        return;
+    }
+    *line = ln;
+    size_t name_len = (size_t)(colon - arg);
+    *filename = malloc(name_len + 1);
+    memcpy(*filename, arg, name_len);
+    (*filename)[name_len] = '\0';
+}
+
+int main(int argc, char *argv[]) {
+    setlocale(LC_ALL, "");
+
+    char **args = argv + 1;
+    int nargs = argc - 1;
+
+    SplitMode split = SPLIT_VERTICAL;
+    if (nargs > 0 && strcmp(args[0], "-h") == 0) {
+        split = SPLIT_HORIZONTAL;
+        args++;
+        nargs--;
+    }
+
+    if (nargs < 1) {
+        fprintf(stderr, "Usage: ef [-h] <filename[:line]> [filename2[:line]] ...\n");
+        return 1;
+    }
+
+    FileInfo *files = malloc(sizeof(FileInfo) * nargs);
+    for (int i = 0; i < nargs; i++) {
+        parse_file_arg(args[i], &files[i].filename, &files[i].line);
+    }
+
+    log_open("edit.log");
+    log_write("editor starting, %d file(s)", nargs);
+
+    Editor *ed = editor_new(files, nargs, split);
+    if (!ed) {
+        fprintf(stderr, "Error: failed to initialize editor\n");
+        for (int i = 0; i < nargs; i++) free(files[i].filename);
+        free(files);
+        return 1;
+    }
+
+    int ret = editor_run(ed);
+
+    log_write("editor exiting, code=%d", ret);
+    log_close();
+
+    editor_free(ed);
+    for (int i = 0; i < nargs; i++) free(files[i].filename);
+    free(files);
+    return ret;
+}
