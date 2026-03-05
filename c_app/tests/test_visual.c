@@ -118,6 +118,75 @@ void test_visual_unindent(void) {
     TEST_ASSERT_EQUAL_INT(3, buf->line_lens[1]); /* "def" */
 }
 
+void test_visual_yank_multiline(void) {
+    const wchar_t *lines[] = {L"hello", L"world", L"test"};
+    setup_editor(lines, 3);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_col = 0;
+    pane_start_selection(p);
+
+    /* Select down two rows */
+    send_char(L'j');
+    send_char(L'j');
+
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(MODE_NORMAL, ed->mode);
+    TEST_ASSERT_EQUAL_INT(3, ed->clipboard->line_count);
+    TEST_ASSERT_FALSE(ed->clipboard->is_line_mode);
+    /* First line: "hello" (from col 0 to end) */
+    TEST_ASSERT_EQUAL_INT(5, ed->clipboard->line_lens[0]);
+    /* Middle line: "world" (full) */
+    TEST_ASSERT_EQUAL_INT(5, ed->clipboard->line_lens[1]);
+}
+
+void test_visual_yank_multiline_paste(void) {
+    const wchar_t *lines[] = {L"aaa", L"bbb", L"ccc"};
+    setup_editor(lines, 3);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_col = 0;
+    pane_start_selection(p);
+
+    /* Select first two rows */
+    send_char(L'j');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(2, ed->clipboard->line_count);
+
+    /* Move to row 2, col 1 and paste after */
+    p->cursor_row = 2;
+    p->cursor_col = 1;
+    send_char(L'p');
+
+    /* Original "ccc" at col 1 → insert_pos=2
+     * clipboard[0]="aaa", clipboard[1]="b" (first char of "bbb")
+     * first line: "cc" + "aaa" = "ccaaa"
+     * last line:  "b" + "c" = "bc"
+     */
+    TEST_ASSERT_EQUAL_INT(4, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[2], L"ccaaa", 5));
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[3], L"bc", 2));
+}
+
+void test_visual_yank_multiline_paste_before(void) {
+    const wchar_t *lines[] = {L"abc"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+
+    /* Manually set clipboard with 2-line content */
+    wchar_t *cb_lines[] = {L"XX", L"YY"};
+    int cb_lens[] = {2, 2};
+    clipboard_set(ed->clipboard, cb_lines, cb_lens, 2, false);
+
+    /* Paste before at col 1 */
+    ed->mode = MODE_NORMAL;
+    p->cursor_col = 1;
+    send_char(L'P');
+
+    /* insert_pos=1: "a" + "XX" = "aXX", "YY" + "bc" = "YYbc" */
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"aXX", 3));
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[1], L"YYbc", 4));
+}
+
 void test_visual_navigation(void) {
     const wchar_t *lines[] = {L"hello", L"world"};
     setup_editor(lines, 2);
@@ -136,6 +205,9 @@ int main(void) {
     RUN_TEST(test_visual_delete);
     RUN_TEST(test_visual_indent);
     RUN_TEST(test_visual_unindent);
+    RUN_TEST(test_visual_yank_multiline);
+    RUN_TEST(test_visual_yank_multiline_paste);
+    RUN_TEST(test_visual_yank_multiline_paste_before);
     RUN_TEST(test_visual_navigation);
     return UNITY_END();
 }
