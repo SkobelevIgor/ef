@@ -2,6 +2,7 @@
 #include "theme.h"
 #include "runes.h"
 #include "syntax.h"
+#include "widget.h"
 
 #include <locale.h>
 #include <ncurses.h>
@@ -107,6 +108,66 @@ void calc_cursor_screen_pos(wchar_t **lines, const int *line_lens,
     }
 }
 
+/* --- Widget bar rendering ------------------------------------------------ */
+
+static int render_widget_bar(const wchar_t *text, int text_len,
+                             int start_x, int start_y, int width,
+                             int color_pair) {
+    int rows = calculate_bar_rows(text, text_len, width);
+    attron(COLOR_PAIR(color_pair));
+    for (int r = 0; r < rows; r++)
+        for (int c = 0; c < width; c++)
+            mvaddch(start_y + r, start_x + c, ' ');
+
+    int x = 0, y = 0;
+    for (int i = 0; i < text_len; i++) {
+        if (x >= width) { x = 0; y++; }
+        if (y < rows) {
+            cchar_t cc;
+            wchar_t wch[2] = {text[i], L'\0'};
+            setcchar(&cc, wch, A_NORMAL, color_pair, NULL);
+            mvadd_wch(start_y + y, start_x + x, &cc);
+            x++;
+        }
+    }
+    attroff(COLOR_PAIR(color_pair));
+    return rows;
+}
+
+static int render_widget_in_pane(const WidgetState *w,
+                                 int start_x, int start_y, int width) {
+    if (!w || !w->active) return 0;
+    WidgetSession *s = widget_current_session((WidgetState *)w);
+    int total = 0;
+
+    if (w->kind == WIDGET_SEARCH && s) {
+        int pair = s->no_matches ? PAIR_SEARCH_BAR_NOMATCH : PAIR_SEARCH_BAR;
+        total += render_widget_bar(s->query, s->query_len,
+                                   start_x, start_y, width, pair);
+    } else if (w->kind == WIDGET_FIND_REPLACE && s) {
+        int fp = s->no_matches ? PAIR_SEARCH_BAR_NOMATCH : PAIR_SEARCH_BAR;
+        total += render_widget_bar(s->query, s->query_len,
+                                   start_x, start_y, width, fp);
+        int rp = s->no_matches ? PAIR_REPLACE_BAR_NOMATCH : PAIR_REPLACE_BAR;
+        total += render_widget_bar(s->replace_text, s->replace_len,
+                                   start_x, start_y + total, width, rp);
+    }
+    return total;
+}
+
+static bool is_in_match(const SearchMatch *matches, int count,
+                        int current_index, int row, int col, int qlen,
+                        bool *is_current) {
+    for (int i = 0; i < count; i++) {
+        if (matches[i].row == row
+            && col >= matches[i].col && col < matches[i].col + qlen) {
+            *is_current = (i == current_index);
+            return true;
+        }
+    }
+    return false;
+}
+
 /* --- NcursesScreen implementation ---------------------------------------- */
 
 typedef struct {
@@ -134,11 +195,40 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
     if (active >= layout_count) active = layout_count - 1;
     if (active < 0) active = 0;
 
+    int active_bar_h = 0;
+
     for (int i = 0; i < layout_count; i++) {
         PaneLayout *lay = &layouts[i];
         if (lay->pane_index >= npanes) continue;
         Pane *pane = panes[lay->pane_index];
         Buffer *buf = pane->buffer;
+
+        int pane_y = lay->start_y;
+        int pane_h = lay->height;
+
+        /* Render widget bar at top of pane */
+        int bar_h = 0;
+        if (pane_has_active_widget(pane)) {
+            bar_h = render_widget_in_pane(pane->widget,
+                                          lay->start_x, pane_y, lay->width);
+            pane_y += bar_h;
+            pane_h -= bar_h;
+            if (pane_h < 1) pane_h = 1;
+        }
+        if (i == active) active_bar_h = bar_h;
+
+        /* Get widget match info for highlighting */
+        const SearchMatch *matches = NULL;
+        int match_count = 0, current_idx = -1, qlen = 0;
+        if (pane_has_active_widget(pane)) {
+            WidgetSession *ws = widget_current_session(pane->widget);
+            if (ws && ws->match_count > 0) {
+                matches = ws->matches;
+                match_count = ws->match_count;
+                current_idx = ws->current_index;
+                qlen = ws->query_len;
+            }
+        }
 
         int ln_w = line_number_width(buf->line_count);
         int text_w = lay->width - ln_w;
@@ -147,11 +237,11 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
         Mode pane_mode = (i == active) ? mode : MODE_NORMAL;
         int cur_ln_pair = theme_current_linenum_pair(pane_mode);
 
-        pane_adjust_scroll(pane, text_w, lay->height);
+        pane_adjust_scroll(pane, text_w, pane_h);
 
         int screen_row = 0;
         for (int line_idx = pane->scroll_offset;
-             line_idx < buf->line_count && screen_row < lay->height;
+             line_idx < buf->line_count && screen_row < pane_h;
              line_idx++) {
             bool is_current = (line_idx == pane->cursor_row);
             int line_num;
@@ -169,7 +259,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
             char num_buf[16];
             snprintf(num_buf, sizeof(num_buf), "%*d ", ln_w - 1, line_num);
             attron(COLOR_PAIR(ln_pair) | (is_current ? A_BOLD : 0));
-            mvaddstr(lay->start_y + screen_row, lay->start_x, num_buf);
+            mvaddstr(pane_y + screen_row, lay->start_x, num_buf);
             attroff(COLOR_PAIR(ln_pair) | (is_current ? A_BOLD : 0));
 
             if (buf->line_lens[line_idx] == 0) {
@@ -191,7 +281,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
             int char_idx = 0;
             bool first_wrap = true;
             while (char_idx < buf->line_lens[line_idx]
-                   && screen_row < lay->height) {
+                   && screen_row < pane_h) {
                 if (!first_wrap) {
                     /* Wrap indicator */
                     char wrap_buf[16];
@@ -199,7 +289,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                              ln_w - 1, "\xe2\x86\xaa"); /* ↪ in UTF-8 */
                     int wp = is_current ? cur_ln_pair : PAIR_WRAP_INDIC;
                     attron(COLOR_PAIR(wp));
-                    mvaddstr(lay->start_y + screen_row, lay->start_x, wrap_buf);
+                    mvaddstr(pane_y + screen_row, lay->start_x, wrap_buf);
                     attroff(COLOR_PAIR(wp));
                 }
                 first_wrap = false;
@@ -218,21 +308,30 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                     if (pane->selection_active
                         && pane_is_in_selection(pane, line_idx, char_idx)) {
                         char_attr = A_REVERSE;
-                    } else if (tokens) {
-                        const SyntaxToken *tok =
-                            syntax_token_at(tokens, token_count, char_idx);
-                        if (tok) {
-                            if (tok->fg_color >= 0)
-                                char_pair = theme_syntax_pair(tok->fg_color);
-                            if (tok->bold)
-                                char_attr |= A_BOLD;
+                    } else {
+                        /* Check widget match highlighting */
+                        bool is_cur_match = false;
+                        if (matches && is_in_match(matches, match_count,
+                                current_idx, line_idx, char_idx,
+                                qlen, &is_cur_match)) {
+                            char_pair = is_cur_match
+                                ? PAIR_CURRENT_MATCH : PAIR_SEARCH_MATCH;
+                        } else if (tokens) {
+                            const SyntaxToken *tok =
+                                syntax_token_at(tokens, token_count, char_idx);
+                            if (tok) {
+                                if (tok->fg_color >= 0)
+                                    char_pair = theme_syntax_pair(tok->fg_color);
+                                if (tok->bold)
+                                    char_attr |= A_BOLD;
+                            }
                         }
                     }
 
                     if (ch == L'\t') {
                         int spaces = tab_stop - (col % tab_stop);
                         for (int s = 0; s < spaces && col < text_w; s++) {
-                            mvaddch(lay->start_y + screen_row,
+                            mvaddch(pane_y + screen_row,
                                     text_x + col,
                                     ' ' | char_attr | COLOR_PAIR(char_pair));
                             col++;
@@ -241,7 +340,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                         cchar_t cc;
                         wchar_t wch[2] = {ch, L'\0'};
                         setcchar(&cc, wch, char_attr, char_pair, NULL);
-                        mvadd_wch(lay->start_y + screen_row,
+                        mvadd_wch(pane_y + screen_row,
                                   text_x + col, &cc);
                         col++;
                     }
@@ -271,14 +370,36 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
     if (active < layout_count && active < npanes) {
         PaneLayout *al = &layouts[active];
         Pane *ap = panes[active];
-        int ln_w = line_number_width(ap->buffer->line_count);
-        int cx, cy;
-        calc_cursor_screen_pos(ap->buffer->lines, ap->buffer->line_lens,
-                               ap->cursor_row, ap->cursor_col,
-                               ap->scroll_offset, al->width, ln_w,
-                               ap->buffer->config.tab_stop, &cx, &cy);
-        move(al->start_y + cy, al->start_x + cx);
-        curs_set(1);
+
+        if (pane_has_active_widget(ap)
+            && ap->widget->focus != FOCUS_EDITOR) {
+            /* Cursor in widget bar */
+            WidgetSession *ws = widget_current_session(ap->widget);
+            if (ws) {
+                int row_off = 0;
+                int tlen = 0;
+                if (ap->widget->focus == FOCUS_REPLACE_BAR) {
+                    row_off = calculate_bar_rows(ws->query, ws->query_len,
+                                                 al->width);
+                    tlen = ws->replace_len;
+                } else {
+                    tlen = ws->query_len;
+                }
+                int cx = tlen % al->width;
+                int cy = tlen / al->width + row_off;
+                move(al->start_y + cy, al->start_x + cx);
+            }
+            curs_set(1);
+        } else {
+            int ln_w = line_number_width(ap->buffer->line_count);
+            int cx, cy;
+            calc_cursor_screen_pos(ap->buffer->lines, ap->buffer->line_lens,
+                                   ap->cursor_row, ap->cursor_col,
+                                   ap->scroll_offset, al->width, ln_w,
+                                   ap->buffer->config.tab_stop, &cx, &cy);
+            move(al->start_y + active_bar_h + cy, al->start_x + cx);
+            curs_set(1);
+        }
     }
 
     refresh();
@@ -287,7 +408,14 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
 
 static int ncurses_poll_event(void *self, EditorEvent *ev) {
     (void)self;
-    wget_wch(stdscr, (wint_t *)&ev->key);
+    timeout(1000);
+    int rc = wget_wch(stdscr, (wint_t *)&ev->key);
+
+    if (rc == ERR) {
+        ev->type = EV_NONE;
+        ev->is_char = false;
+        return 0;
+    }
 
     if (ev->key == KEY_RESIZE) {
         ev->type = EV_RESIZE;
@@ -332,6 +460,7 @@ static void ncurses_resume(void *self) {
 
 ScreenVTable *ncurses_screen_new(void) {
     setlocale(LC_ALL, "");
+    set_escdelay(25);
     initscr();
     cbreak();
     noecho();

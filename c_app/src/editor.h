@@ -11,6 +11,7 @@
 #include "widget.h"
 #include "search.h"
 #include "config.h"
+#include "file_watcher.h"
 
 #include <stdbool.h>
 #include <time.h>
@@ -42,7 +43,8 @@ typedef struct Editor {
     struct timespec last_shift_time;
     bool            has_last_shift;
 
-    EditorConfig   *config;
+    EditorConfig       *config;
+    FileWatcherVTable  *watcher;
 } Editor;
 
 /* Create editor for testing (no screen init, mock-friendly). */
@@ -97,5 +99,9 @@ void editor_update_widget_matches(Editor *ed);
 /* Autocomplete operations. */
 void editor_trigger_autocomplete(Editor *ed);
 void editor_accept_autocomplete(Editor *ed);
+
+/* File watching. */
+void editor_check_file_changes(Editor *ed);
+void editor_handle_file_change(Editor *ed, const char *filename);
 
 #endif /* EF_EDITOR_H */

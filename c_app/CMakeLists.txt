@@ -65,6 +65,7 @@ add_library(ef_core STATIC
     src/log.c
     src/config.c
     src/syntax.c
+    src/file_watcher.c
     deps/cjson/cJSON.c
 )
 

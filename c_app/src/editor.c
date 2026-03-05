@@ -41,6 +41,12 @@ Editor *editor_new_with_deps(ScreenVTable *screen,
         }
     }
     ed->pane_count = pane_count;
+    ed->watcher = file_watcher_new();
+    for (int i = 0; i < ed->buffer_count; i++) {
+        if (ed->buffer_registry[i]->filename)
+            ed->watcher->watch(ed->watcher->impl,
+                               ed->buffer_registry[i]->filename);
+    }
     return ed;
 }
 
@@ -128,6 +134,7 @@ void editor_free(Editor *ed) {
     clipboard_free(ed->clipboard);
     history_free(ed->history);
     config_free(ed->config);
+    file_watcher_free(ed->watcher);
     /* Screen freed by caller or here */
     free(ed);
 }
@@ -159,8 +166,12 @@ void editor_schedule_auto_save(Editor *ed) {
 
 void editor_save_all_modified(Editor *ed) {
     for (int i = 0; i < ed->buffer_count; i++) {
-        if (ed->buffer_registry[i]->modified) {
-            buffer_save(ed->buffer_registry[i]);
+        Buffer *buf = ed->buffer_registry[i];
+        if (buf->modified) {
+            buffer_save(buf);
+            if (ed->watcher && buf->filename)
+                ed->watcher->update_mod_time(
+                    ed->watcher->impl, buf->filename);
         }
     }
 }
@@ -670,28 +681,32 @@ void editor_widget_replace_current(Editor *ed) {
 }
 
 static bool handle_widget_find_bar_key(Editor *ed, EditorEvent *ev) {
-    Pane *pane = editor_active_pane(ed);
-    WidgetState *w = pane->widget;
+    WidgetState *w = editor_active_pane(ed)->widget;
     WidgetSession *s = widget_current_session(w);
     if (!s) return false;
 
-    if (ev->is_char) {
-        widget_session_append_query(s, ev->ch);
-        editor_update_widget_matches(ed);
-        return false;
-    }
-
-    switch (ev->key) {
-    case KEY_ENTER: case '\n': case '\r':
+    /* Enter: confirm search and move focus to editor */
+    if (ev->key == '\n' || ev->key == '\r'
+        || (!ev->is_char && ev->key == KEY_ENTER)) {
         if (w->kind == WIDGET_SEARCH) {
             w->focus = FOCUS_EDITOR;
             w->confirmed = true;
         }
         return false;
-    case KEY_BACKSPACE: case 127:
+    }
+
+    /* Backspace */
+    if (ev->key == 127 || ev->key == 8
+        || (!ev->is_char && ev->key == KEY_BACKSPACE)) {
         widget_session_backspace_query(s);
         editor_update_widget_matches(ed);
         return false;
+    }
+
+    /* Printable characters only */
+    if (ev->is_char && ev->ch >= 32) {
+        widget_session_append_query(s, ev->ch);
+        editor_update_widget_matches(ed);
     }
     return false;
 }
@@ -700,65 +715,71 @@ static bool handle_widget_replace_bar_key(Editor *ed, EditorEvent *ev) {
     WidgetSession *s = widget_current_session(editor_active_pane(ed)->widget);
     if (!s) return false;
 
-    if (ev->is_char) {
-        widget_session_append_replace(s, ev->ch);
+    /* Backspace */
+    if (ev->key == 127 || ev->key == 8
+        || (!ev->is_char && ev->key == KEY_BACKSPACE)) {
+        widget_session_backspace_replace(s);
         return false;
     }
 
-    switch (ev->key) {
-    case KEY_BACKSPACE: case 127:
-        widget_session_backspace_replace(s);
-        return false;
+    /* Printable characters only */
+    if (ev->is_char && ev->ch >= 32) {
+        widget_session_append_replace(s, ev->ch);
     }
     return false;
 }
 
 static bool handle_widget_editor_key(Editor *ed, EditorEvent *ev) {
     WidgetState *w = editor_active_pane(ed)->widget;
+
+    /* n/N navigation */
     if (ev->is_char) {
         switch (ev->ch) {
         case L'n': editor_widget_next_match(ed); return false;
         case L'N': editor_widget_prev_match(ed); return false;
         }
     }
-    if (!ev->is_char) {
-        switch (ev->key) {
-        case KEY_ENTER: case '\n': case '\r':
-            if (w->kind == WIDGET_FIND_REPLACE)
-                editor_widget_replace_current(ed);
-            return false;
-        }
+
+    /* Enter: replace current match in FindReplace mode */
+    if (ev->key == '\n' || ev->key == '\r'
+        || (!ev->is_char && ev->key == KEY_ENTER)) {
+        if (w->kind == WIDGET_FIND_REPLACE)
+            editor_widget_replace_current(ed);
+        return false;
     }
     return false;
 }
 
 bool editor_handle_widget_mode(Editor *ed, EditorEvent *ev) {
-    Pane *pane = editor_active_pane(ed);
-    WidgetState *w = pane->widget;
+    WidgetState *w = editor_active_pane(ed)->widget;
     if (!w) return false;
 
-    /* Global widget keys */
+    /* Escape: close widget (comes as is_char=true from ncurses) */
+    if (ev->key == 27) {
+        editor_close_widget(ed);
+        return false;
+    }
+
+    /* F3/F4: always special keys (is_char=false) */
     if (!ev->is_char) {
-        switch (ev->key) {
-        case 27: /* Escape */
-            editor_close_widget(ed);
-            return false;
-        case KEY_F(3):
+        if (ev->key == KEY_F(3)) {
             editor_open_find_replace_widget(ed);
             return false;
-        case KEY_F(4):
+        }
+        if (ev->key == KEY_F(4)) {
             editor_open_search_widget(ed);
             return false;
-        case '\t':
-            if (w->kind == WIDGET_FIND_REPLACE) {
-                switch (w->focus) {
-                case FOCUS_FIND_BAR:    w->focus = FOCUS_REPLACE_BAR; break;
-                case FOCUS_REPLACE_BAR: w->focus = FOCUS_EDITOR; break;
-                default:                w->focus = FOCUS_FIND_BAR; break;
-                }
-            }
-            return false;
         }
+    }
+
+    /* Tab: cycle focus in FindReplace (comes as is_char=true from ncurses) */
+    if (ev->key == '\t' && w->kind == WIDGET_FIND_REPLACE) {
+        switch (w->focus) {
+        case FOCUS_FIND_BAR:    w->focus = FOCUS_REPLACE_BAR; break;
+        case FOCUS_REPLACE_BAR: w->focus = FOCUS_EDITOR; break;
+        default:                w->focus = FOCUS_FIND_BAR; break;
+        }
+        return false;
     }
 
     switch (w->focus) {
@@ -904,6 +925,67 @@ bool editor_handle_key(Editor *ed, EditorEvent *ev) {
     return false;
 }
 
+/* --- File watching ------------------------------------------------------- */
+
+static Buffer *find_buffer_by_filename(Editor *ed, const char *fn) {
+    for (int i = 0; i < ed->buffer_count; i++) {
+        if (ed->buffer_registry[i]->filename
+            && strcmp(ed->buffer_registry[i]->filename, fn) == 0)
+            return ed->buffer_registry[i];
+    }
+    return NULL;
+}
+
+void editor_handle_file_change(Editor *ed, const char *filename) {
+    if (!ed || !filename) return;
+    Buffer *buf = find_buffer_by_filename(ed, filename);
+    if (!buf) return;
+
+    if (ed->mode == MODE_INSERT) {
+        Buffer *ab = editor_active_buffer(ed);
+        history_commit_session(ed->history,
+                               ab->lines, ab->line_lens,
+                               ab->line_count);
+        ed->mode = MODE_NORMAL;
+    }
+
+    Pane *pane = editor_active_pane(ed);
+    int *old_lens;
+    wchar_t **old = buffer_copy_lines(
+        buf->lines, buf->line_lens,
+        buf->line_count, &old_lens);
+    int old_count = buf->line_count;
+    int row = pane->cursor_row, col = pane->cursor_col;
+
+    if (buffer_load(buf) != 0) {
+        buffer_free_lines(old, old_lens, old_count);
+        return;
+    }
+
+    Change *c = change_new(CHANGE_REPLACE, buf, row, col);
+    c->text = buffer_copy_lines(
+        buf->lines, buf->line_lens,
+        buf->line_count, &c->text_lens);
+    c->text_count = buf->line_count;
+    c->old_text = old;
+    c->old_text_lens = old_lens;
+    c->old_text_count = old_count;
+    history_push(ed->history, c);
+
+    for (int i = 0; i < ed->pane_count; i++) {
+        if (ed->panes[i]->buffer == buf)
+            pane_clamp_cursor(ed->panes[i]);
+    }
+}
+
+void editor_check_file_changes(Editor *ed) {
+    if (!ed->watcher) return;
+    const char *changed =
+        ed->watcher->check(ed->watcher->impl);
+    if (changed)
+        editor_handle_file_change(ed, changed);
+}
+
 /* --- Main loop ----------------------------------------------------------- */
 
 int editor_run(Editor *ed) {
@@ -914,6 +996,10 @@ int editor_run(Editor *ed) {
         EditorEvent ev;
         ed->screen->poll_event(ed->screen->impl, &ev);
 
+        if (ev.type == EV_NONE) {
+            editor_check_file_changes(ed);
+            continue;
+        }
         if (ev.type == EV_RESIZE) {
             ed->screen->sync(ed->screen->impl);
             continue;

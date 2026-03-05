@@ -429,6 +429,167 @@ void test_replace_bar_typing(void) {
     TEST_ASSERT_EQUAL_INT(2, s->replace_len);
 }
 
+/* --- Control chars as is_char=true (real ncurses behavior) --------------- */
+
+void test_escape_as_char_closes_widget(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+
+    editor_open_search_widget(ed);
+    TEST_ASSERT_TRUE(pane_has_active_widget(editor_active_pane(ed)));
+
+    /* Real ncurses sends Escape as is_char=true, ch=27 */
+    EditorEvent esc = make_char_event(27);
+    editor_handle_widget_mode(ed, &esc);
+    TEST_ASSERT_NULL(editor_active_pane(ed)->widget);
+}
+
+void test_enter_as_char_confirms_search(void) {
+    const wchar_t *lines[] = {L"hello world", L"foo hello bar"};
+    setup_editor(lines, 2);
+
+    editor_open_search_widget(ed);
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+
+    /* Real ncurses sends Enter as is_char=true, ch='\r' */
+    EditorEvent enter = make_char_event(L'\r');
+    editor_handle_widget_mode(ed, &enter);
+
+    WidgetState *w = editor_active_pane(ed)->widget;
+    TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, w->focus);
+    TEST_ASSERT_TRUE(w->confirmed);
+}
+
+void test_backspace_as_char_deletes_query(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+
+    editor_open_search_widget(ed);
+    EditorEvent ev_h = make_char_event(L'h');
+    EditorEvent ev_e = make_char_event(L'e');
+    editor_handle_widget_mode(ed, &ev_h);
+    editor_handle_widget_mode(ed, &ev_e);
+
+    /* Real ncurses sends Backspace as is_char=true, ch=127 */
+    EditorEvent bs = make_char_event(127);
+    editor_handle_widget_mode(ed, &bs);
+
+    WidgetSession *s = editor_active_pane(ed)->widget->search_session;
+    TEST_ASSERT_EQUAL_INT(1, s->query_len);
+}
+
+void test_tab_as_char_cycles_focus(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+
+    editor_open_find_replace_widget(ed);
+    WidgetState *w = editor_active_pane(ed)->widget;
+    TEST_ASSERT_EQUAL_INT(FOCUS_FIND_BAR, w->focus);
+
+    /* Real ncurses sends Tab as is_char=true, ch='\t' */
+    EditorEvent tab = make_char_event(L'\t');
+    editor_handle_widget_mode(ed, &tab);
+    TEST_ASSERT_EQUAL_INT(FOCUS_REPLACE_BAR, w->focus);
+
+    editor_handle_widget_mode(ed, &tab);
+    TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, w->focus);
+}
+
+void test_enter_as_char_noop_in_editor_focus(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+
+    editor_open_search_widget(ed);
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+
+    /* Confirm with Enter */
+    EditorEvent enter = make_char_event(L'\r');
+    editor_handle_widget_mode(ed, &enter);
+    TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, editor_active_pane(ed)->widget->focus);
+
+    Pane *p = editor_active_pane(ed);
+    int row_before = p->cursor_row, col_before = p->cursor_col;
+
+    /* Another Enter in FocusEditor for Search mode is a no-op */
+    editor_handle_widget_mode(ed, &enter);
+    TEST_ASSERT_EQUAL_INT(row_before, p->cursor_row);
+    TEST_ASSERT_EQUAL_INT(col_before, p->cursor_col);
+}
+
+void test_full_search_lifecycle_with_real_keys(void) {
+    const wchar_t *lines[] = {L"hello world hello again hello"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 0; p->cursor_col = 0;
+
+    /* 1. F4 opens search */
+    EditorEvent f4 = make_key_event(KEY_F(4));
+    editor_handle_key(ed, &f4);
+    TEST_ASSERT_TRUE(pane_has_active_widget(p));
+
+    /* 2. Type "hello" */
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+    WidgetSession *s = p->widget->search_session;
+    TEST_ASSERT_TRUE(s->match_count >= 3);
+
+    /* 3. Enter confirms (real ncurses sends \r) */
+    EditorEvent enter = make_char_event(L'\r');
+    editor_handle_widget_mode(ed, &enter);
+    TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, p->widget->focus);
+    TEST_ASSERT_TRUE(p->widget->confirmed);
+
+    /* 4. n navigates to next match */
+    int col_after_enter = p->cursor_col;
+    EditorEvent ev_n = make_char_event(L'n');
+    editor_handle_widget_mode(ed, &ev_n);
+    int col_after_n = p->cursor_col;
+    TEST_ASSERT_TRUE(col_after_n != col_after_enter
+                     || s->current_index != 0);
+
+    /* 5. N navigates back */
+    EditorEvent ev_N = make_char_event(L'N');
+    editor_handle_widget_mode(ed, &ev_N);
+
+    /* 6. Escape keeps cursor (confirmed=true) */
+    int final_row = p->cursor_row, final_col = p->cursor_col;
+    EditorEvent esc = make_char_event(27);
+    editor_handle_widget_mode(ed, &esc);
+    TEST_ASSERT_NULL(p->widget);
+    TEST_ASSERT_EQUAL_INT(final_row, p->cursor_row);
+    TEST_ASSERT_EQUAL_INT(final_col, p->cursor_col);
+}
+
+void test_escape_before_enter_restores_anchor(void) {
+    const wchar_t *lines[] = {L"hello world hello"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 0; p->cursor_col = 6;
+
+    editor_open_search_widget(ed);
+
+    /* Type "hello" - auto-navigates at 2+ chars */
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+
+    /* Escape WITHOUT Enter → restore anchor */
+    EditorEvent esc = make_char_event(27);
+    editor_handle_widget_mode(ed, &esc);
+    TEST_ASSERT_NULL(p->widget);
+    TEST_ASSERT_EQUAL_INT(0, p->cursor_row);
+    TEST_ASSERT_EQUAL_INT(6, p->cursor_col);
+}
+
 /* --- F3/F4 within widget mode -------------------------------------------- */
 
 void test_f3_during_search_switches(void) {
@@ -511,5 +672,13 @@ int main(void) {
     RUN_TEST(test_f4_during_find_replace_switches);
     /* Dual sessions */
     RUN_TEST(test_dual_sessions_independent);
+    /* Real ncurses key behavior (is_char=true for control chars) */
+    RUN_TEST(test_escape_as_char_closes_widget);
+    RUN_TEST(test_enter_as_char_confirms_search);
+    RUN_TEST(test_backspace_as_char_deletes_query);
+    RUN_TEST(test_tab_as_char_cycles_focus);
+    RUN_TEST(test_enter_as_char_noop_in_editor_focus);
+    RUN_TEST(test_full_search_lifecycle_with_real_keys);
+    RUN_TEST(test_escape_before_enter_restores_anchor);
     return UNITY_END();
 }
