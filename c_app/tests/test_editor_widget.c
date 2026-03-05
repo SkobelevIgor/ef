@@ -126,15 +126,16 @@ void test_f3_opens_find_replace(void) {
     TEST_ASSERT_EQUAL_INT(WIDGET_FIND_REPLACE, p->widget->kind);
 }
 
-void test_f3_when_active_is_noop(void) {
+void test_f3_when_active_resets_focus_to_findbar(void) {
     const wchar_t *lines[] = {L"hello world"};
     setup_editor(lines, 1);
 
     editor_open_find_replace_widget(ed);
-    TEST_ASSERT_EQUAL_INT(FOCUS_FIND_BAR, editor_active_pane(ed)->widget->focus);
+    WidgetState *w = editor_active_pane(ed)->widget;
+    w->focus = FOCUS_EDITOR; /* simulate being on occurrences */
 
-    editor_open_find_replace_widget(ed); /* should be no-op */
-    TEST_ASSERT_EQUAL_INT(FOCUS_FIND_BAR, editor_active_pane(ed)->widget->focus);
+    editor_open_find_replace_widget(ed);
+    TEST_ASSERT_EQUAL_INT(FOCUS_FIND_BAR, w->focus);
 }
 
 void test_f3_switches_from_search(void) {
@@ -760,7 +761,7 @@ int main(void) {
     RUN_TEST(test_f4_switches_from_find_replace);
     /* F3 */
     RUN_TEST(test_f3_opens_find_replace);
-    RUN_TEST(test_f3_when_active_is_noop);
+    RUN_TEST(test_f3_when_active_resets_focus_to_findbar);
     RUN_TEST(test_f3_switches_from_search);
     /* Close */
     RUN_TEST(test_escape_closes_widget);

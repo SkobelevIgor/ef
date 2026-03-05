@@ -571,7 +571,10 @@ void editor_open_find_replace_widget(Editor *ed) {
         pane->widget = widget_state_new(WIDGET_FIND_REPLACE, pane->cursor_row, pane->cursor_col);
         return;
     }
-    if (w->kind == WIDGET_FIND_REPLACE) return; /* Tab handles cycling */
+    if (w->kind == WIDGET_FIND_REPLACE) {
+        w->focus = FOCUS_FIND_BAR;
+        return;
+    }
     switch_to_widget(ed, WIDGET_FIND_REPLACE);
 }
 
