@@ -685,12 +685,14 @@ static bool handle_widget_find_bar_key(Editor *ed, EditorEvent *ev) {
     WidgetSession *s = widget_current_session(w);
     if (!s) return false;
 
-    /* Enter: confirm search and move focus to editor */
+    /* Enter */
     if (ev->key == '\n' || ev->key == '\r'
         || (!ev->is_char && ev->key == KEY_ENTER)) {
         if (w->kind == WIDGET_SEARCH) {
             w->focus = FOCUS_EDITOR;
             w->confirmed = true;
+        } else if (w->kind == WIDGET_FIND_REPLACE) {
+            w->focus = FOCUS_REPLACE_BAR;
         }
         return false;
     }
@@ -712,8 +714,17 @@ static bool handle_widget_find_bar_key(Editor *ed, EditorEvent *ev) {
 }
 
 static bool handle_widget_replace_bar_key(Editor *ed, EditorEvent *ev) {
-    WidgetSession *s = widget_current_session(editor_active_pane(ed)->widget);
+    WidgetState *w = editor_active_pane(ed)->widget;
+    WidgetSession *s = widget_current_session(w);
     if (!s) return false;
+
+    /* Enter: move focus to editor */
+    if (ev->key == '\n' || ev->key == '\r'
+        || (!ev->is_char && ev->key == KEY_ENTER)) {
+        w->focus = FOCUS_EDITOR;
+        w->confirmed = true;
+        return false;
+    }
 
     /* Backspace */
     if (ev->key == 127 || ev->key == 8
@@ -772,13 +783,10 @@ bool editor_handle_widget_mode(Editor *ed, EditorEvent *ev) {
         }
     }
 
-    /* Tab: cycle focus in FindReplace (comes as is_char=true from ncurses) */
+    /* Tab: toggle FindBar ↔ ReplaceBar in FindReplace */
     if (ev->key == '\t' && w->kind == WIDGET_FIND_REPLACE) {
-        switch (w->focus) {
-        case FOCUS_FIND_BAR:    w->focus = FOCUS_REPLACE_BAR; break;
-        case FOCUS_REPLACE_BAR: w->focus = FOCUS_EDITOR; break;
-        default:                w->focus = FOCUS_FIND_BAR; break;
-        }
+        w->focus = (w->focus == FOCUS_FIND_BAR)
+            ? FOCUS_REPLACE_BAR : FOCUS_FIND_BAR;
         return false;
     }
 

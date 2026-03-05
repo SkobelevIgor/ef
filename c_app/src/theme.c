@@ -17,8 +17,8 @@ void theme_init(void) {
     init_pair(PAIR_VISUAL_LINENUM,        COLOR_WHITE,   COLOR_MAGENTA);
     init_pair(PAIR_SEARCH_BAR,            COLOR_WHITE,   COLOR_BLUE);
     init_pair(PAIR_SEARCH_BAR_NOMATCH,    COLOR_RED,     COLOR_BLUE);
-    init_pair(PAIR_REPLACE_BAR,           COLOR_WHITE,   COLOR_GREEN);
-    init_pair(PAIR_REPLACE_BAR_NOMATCH,   COLOR_RED,     COLOR_GREEN);
+    init_pair(PAIR_REPLACE_BAR,           COLOR_BLACK,   COLOR_CYAN);
+    init_pair(PAIR_REPLACE_BAR_NOMATCH,   COLOR_RED,     COLOR_CYAN);
     init_pair(PAIR_AUTOCOMPLETE_NORMAL,   COLOR_BLACK,   COLOR_MAGENTA);
     init_pair(PAIR_AUTOCOMPLETE_SELECTED, COLOR_WHITE,   COLOR_BLACK);
     init_pair(PAIR_SEPARATOR,             8,             -1);

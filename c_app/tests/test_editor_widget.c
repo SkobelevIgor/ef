@@ -404,9 +404,7 @@ void test_tab_cycles_find_replace(void) {
     editor_handle_widget_mode(ed, &tab);
     TEST_ASSERT_EQUAL_INT(FOCUS_REPLACE_BAR, w->focus);
 
-    editor_handle_widget_mode(ed, &tab);
-    TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, w->focus);
-
+    /* Tab toggles back to FindBar (not to Editor) */
     editor_handle_widget_mode(ed, &tab);
     TEST_ASSERT_EQUAL_INT(FOCUS_FIND_BAR, w->focus);
 }
@@ -494,8 +492,9 @@ void test_tab_as_char_cycles_focus(void) {
     editor_handle_widget_mode(ed, &tab);
     TEST_ASSERT_EQUAL_INT(FOCUS_REPLACE_BAR, w->focus);
 
+    /* Tab toggles back to FindBar (not to Editor) */
     editor_handle_widget_mode(ed, &tab);
-    TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, w->focus);
+    TEST_ASSERT_EQUAL_INT(FOCUS_FIND_BAR, w->focus);
 }
 
 void test_enter_as_char_noop_in_editor_focus(void) {
@@ -590,6 +589,123 @@ void test_escape_before_enter_restores_anchor(void) {
     TEST_ASSERT_EQUAL_INT(6, p->cursor_col);
 }
 
+/* --- FindReplace Enter flow: FindBar→ReplaceBar→Editor→Replace ---------- */
+
+void test_fr_enter_on_findbar_moves_to_replacebar(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+
+    editor_open_find_replace_widget(ed);
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+
+    /* Enter on FindBar → focus moves to ReplaceBar */
+    EditorEvent enter = make_char_event(L'\r');
+    editor_handle_widget_mode(ed, &enter);
+    TEST_ASSERT_EQUAL_INT(FOCUS_REPLACE_BAR, editor_active_pane(ed)->widget->focus);
+}
+
+void test_fr_enter_on_replacebar_moves_to_editor(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+
+    editor_open_find_replace_widget(ed);
+    WidgetState *w = editor_active_pane(ed)->widget;
+    w->focus = FOCUS_REPLACE_BAR;
+
+    /* Enter on ReplaceBar (even empty) → focus moves to Editor */
+    EditorEvent enter = make_char_event(L'\r');
+    editor_handle_widget_mode(ed, &enter);
+    TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, w->focus);
+    TEST_ASSERT_TRUE(w->confirmed);
+}
+
+void test_fr_enter_on_editor_replaces(void) {
+    const wchar_t *lines[] = {L"hello world hello"};
+    setup_editor(lines, 1);
+
+    editor_open_find_replace_widget(ed);
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+
+    WidgetState *w = editor_active_pane(ed)->widget;
+    widget_session_append_replace(w->find_replace_session, L'h');
+    widget_session_append_replace(w->find_replace_session, L'i');
+    w->focus = FOCUS_EDITOR;
+
+    EditorEvent enter = make_char_event(L'\r');
+    editor_handle_widget_mode(ed, &enter);
+
+    wchar_t *line = buf->lines[0];
+    TEST_ASSERT_TRUE(line[0] == L'h' && line[1] == L'i' && line[2] == L' ');
+}
+
+void test_fr_full_lifecycle(void) {
+    const wchar_t *lines[] = {L"hello world hello again hello"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+
+    /* 1. F3 opens find-replace */
+    EditorEvent f3 = make_key_event(KEY_F(3));
+    editor_handle_key(ed, &f3);
+    TEST_ASSERT_EQUAL_INT(WIDGET_FIND_REPLACE, p->widget->kind);
+    TEST_ASSERT_EQUAL_INT(FOCUS_FIND_BAR, p->widget->focus);
+
+    /* 2. Type "hello" in find bar */
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+    WidgetSession *s = p->widget->find_replace_session;
+    TEST_ASSERT_TRUE(s->match_count >= 3);
+
+    /* 3. Enter → moves to replace bar */
+    EditorEvent enter = make_char_event(L'\r');
+    editor_handle_widget_mode(ed, &enter);
+    TEST_ASSERT_EQUAL_INT(FOCUS_REPLACE_BAR, p->widget->focus);
+
+    /* 4. Type "hi" in replace bar */
+    for (const wchar_t *c = L"hi"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+    TEST_ASSERT_EQUAL_INT(2, s->replace_len);
+
+    /* 5. Enter → moves to editor */
+    editor_handle_widget_mode(ed, &enter);
+    TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, p->widget->focus);
+    TEST_ASSERT_TRUE(p->widget->confirmed);
+
+    /* 6. n/N navigate between matches */
+    int idx_before = s->current_index;
+    EditorEvent ev_n = make_char_event(L'n');
+    editor_handle_widget_mode(ed, &ev_n);
+    TEST_ASSERT_TRUE(s->current_index != idx_before
+                     || s->match_count == 1);
+
+    EditorEvent ev_N = make_char_event(L'N');
+    editor_handle_widget_mode(ed, &ev_N);
+    TEST_ASSERT_EQUAL_INT(idx_before, s->current_index);
+
+    /* 7. Enter → replaces current match */
+    editor_handle_widget_mode(ed, &enter);
+    wchar_t *line = buf->lines[0];
+    /* At least one "hello" replaced with "hi" */
+    TEST_ASSERT_TRUE(buf->line_lens[0] < 29);
+
+    /* 8. Escape keeps cursor (confirmed) */
+    int final_row = p->cursor_row, final_col = p->cursor_col;
+    EditorEvent esc = make_char_event(27);
+    editor_handle_widget_mode(ed, &esc);
+    TEST_ASSERT_NULL(p->widget);
+    TEST_ASSERT_EQUAL_INT(final_row, p->cursor_row);
+    TEST_ASSERT_EQUAL_INT(final_col, p->cursor_col);
+}
+
 /* --- F3/F4 within widget mode -------------------------------------------- */
 
 void test_f3_during_search_switches(void) {
@@ -667,6 +783,11 @@ int main(void) {
     RUN_TEST(test_tab_cycles_find_replace);
     /* Replace bar */
     RUN_TEST(test_replace_bar_typing);
+    /* FindReplace Enter flow */
+    RUN_TEST(test_fr_enter_on_findbar_moves_to_replacebar);
+    RUN_TEST(test_fr_enter_on_replacebar_moves_to_editor);
+    RUN_TEST(test_fr_enter_on_editor_replaces);
+    RUN_TEST(test_fr_full_lifecycle);
     /* F3/F4 in widget */
     RUN_TEST(test_f3_during_search_switches);
     RUN_TEST(test_f4_during_find_replace_switches);
