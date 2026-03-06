@@ -1,33 +1,47 @@
 # EF (Edit Files)
 
-A terminal-based text editor written in Go, inspired by Vim.
+A terminal-based text editor written in C, inspired by Vim.
 
-## Installation
+## Prerequisites
+
+- **CMake** >= 3.16
+- **ncursesw** (wide character support) - on macOS: `brew install ncurses`
+- **PCRE2** - on macOS: `brew install pcre2`
+
+## Build
 
 ```bash
-go build -o ef .
+cmake -B build && cmake --build build
+```
+
+The binary is produced at `build/ef`.
+
+## Run Tests
+
+```bash
+ctest --test-dir build
 ```
 
 ## Usage
 
 ```bash
 # Single file
-./ef filename.go
+./build/ef filename.go
 
 # Open file at specific line
-./ef filename.go:42
+./build/ef filename.go:42
 
 # Multiple files - vertical splits (side-by-side, default)
-./ef file1.go file2.go file3.go
+./build/ef file1.go file2.go file3.go
 
 # Multiple files - horizontal splits (stacked, with -h flag)
-./ef -h file1.go file2.go file3.go
+./build/ef -h file1.go file2.go file3.go
 
 # Multiple files with line numbers
-./ef file1.go:10 file2.go:25 file3.go:100
+./build/ef file1.go:10 file2.go:25 file3.go:100
 
 # Horizontal splits with line numbers
-./ef -h file1.go:10 file2.go:25
+./build/ef -h file1.go:10 file2.go:25
 ```
 
 ## Modes
@@ -121,7 +135,7 @@ go build -o ef .
 - **Search & Replace** - Case-insensitive search with find-and-replace
 - **Autocomplete** - Word suggestions based on buffer content
 - **Multi-File Splits** - Edit multiple files side-by-side (vertical, default) or stacked (horizontal with `-h`)
-- **Syntax Highlighting** - Configurable per file type
+- **Syntax Highlighting** - Configurable per file type via PCRE2 regex
 - **Auto-save** - Saves 200ms after changes
 - **Relative Line Numbers** - With mode-colored indicators
 
@@ -142,19 +156,9 @@ User configuration file: `~/.efconfig` (JSON format)
 			"syntax_rules": [
 				{"pattern": "//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
 				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 20},
-				{"pattern": "`[^`]*`", "style": {"color": "green", "bold": false}, "priority": 20},
-				{"pattern": "'([^'\\\\]|\\\\.)'", "style": {"color": "green", "bold": false}, "priority": 20},
-				{"pattern": "\\b(break|case|chan|const|continue|default|defer|else|fallthrough|for|func|go|goto|if|import|interface|map|package|range|return|select|struct|switch|type|var)\\b", "style": {"color": "yellow", "bold": false}, "priority": 10},
-				{"pattern": "\\b(bool|byte|complex64|complex128|error|float32|float64|int|int8|int16|int32|int64|rune|string|uint|uint8|uint16|uint32|uint64|uintptr)\\b", "style": {"color": "teal", "bold": false}, "priority": 10},
-				{"pattern": "\\b(append|cap|close|complex|copy|delete|imag|len|make|new|panic|print|println|real|recover)\\b", "style": {"color": "aqua", "bold": false}, "priority": 10},
-				{"pattern": "\\.\\w+", "style": {"color": "yellow", "bold": false}, "priority": 10},
-				{"pattern": "\\b(true|false|nil|iota)\\b", "style": {"color": "purple", "bold": false}, "priority": 10},
-				{"pattern": "[\\(\\)\\[\\]\\{\\}]", "style": {"color": "purple", "bold": false}, "priority": 3},
-				{"pattern": "\\b\\d+(\\.\\d+)?\\b", "style": {"color": "blue", "bold": true}, "priority": 5},
-				{"pattern": "\\b0x[0-9a-fA-F]+\\b", "style": {"color": "blue", "bold": true}, "priority": 5}
+				{"pattern": "\\b(func|if|else|for|return|...)\\b", "style": {"color": "yellow", "bold": false}, "priority": 10}
 			]
-		},
-    ...
+		}
 	},
 	"maps": {
 		"{{": "{}<Esc>ha<Enter><Esc>ko<Tab>",
@@ -169,5 +173,7 @@ User configuration file: `~/.efconfig` (JSON format)
 
 ## Dependencies
 
-- [tcell](https://github.com/gdamore/tcell) - Terminal handling
-- [fsnotify](https://github.com/fsnotify/fsnotify) - File watching
+- [ncursesw](https://invisible-island.net/ncurses/) - Terminal handling with wide character support
+- [PCRE2](https://github.com/PCRE2Project/pcre2) - Regular expressions for syntax highlighting
+- [cJSON](https://github.com/DaveGamble/cJSON) - JSON parsing (embedded)
+- [Unity](https://github.com/ThrowTheSwitch/Unity) - Unit test framework (embedded)

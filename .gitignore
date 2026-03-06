@@ -12,8 +12,8 @@ test*.txt
 
 ignore
 
-# C build artifacts
-c_app/build*/
+# Build artifacts
+build/
 *.o
 *.a
 *.so
