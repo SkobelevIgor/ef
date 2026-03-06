@@ -2,11 +2,40 @@
 
 A terminal-based text editor written in C, inspired by Vim.
 
+## Supported Platforms
+
+- **macOS** (primary) - uses Homebrew ncurses and pcre2
+- **Linux** (Debian/Ubuntu, Fedora/RHEL, Arch) - uses system packages
+
 ## Prerequisites
 
 - **CMake** >= 3.16
-- **ncursesw** (wide character support) - on macOS: `brew install ncurses`
-- **PCRE2** - on macOS: `brew install pcre2`
+- **ncursesw** (wide character support)
+- **PCRE2** (regular expressions)
+
+### macOS
+
+```bash
+brew install ncurses pcre2
+```
+
+### Linux (Debian/Ubuntu)
+
+```bash
+sudo apt install build-essential cmake libncursesw5-dev libpcre2-dev
+```
+
+### Linux (Fedora/RHEL)
+
+```bash
+sudo dnf install gcc cmake ncurses-devel pcre2-devel
+```
+
+### Linux (Arch)
+
+```bash
+sudo pacman -S base-devel cmake ncurses pcre2
+```
 
 ## Build
 
@@ -15,6 +44,18 @@ cmake -B build && cmake --build build
 ```
 
 The binary is produced at `build/ef`.
+
+## Install
+
+```bash
+sudo cmake --install build
+```
+
+Installs `ef` to `/usr/local/bin` by default. To choose a different prefix:
+
+```bash
+cmake -B build -DCMAKE_INSTALL_PREFIX=~/.local && cmake --build build && cmake --install build
+```
 
 ## Run Tests
 
@@ -143,6 +184,10 @@ ctest --test-dir build
 
 User configuration file: `~/.efconfig` (JSON format)
 
+See [.efconfig](.efconfig) for a full example with Go, Python, and JavaScript/TypeScript syntax rules.
+
+Minimal example:
+
 ```json
 {
 	"file_types": {
@@ -154,9 +199,14 @@ User configuration file: `~/.efconfig` (JSON format)
 			"autoindentation": true,
 			"expandtab": false,
 			"syntax_rules": [
-				{"pattern": "//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
-				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 20},
-				{"pattern": "\\b(func|if|else|for|return|...)\\b", "style": {"color": "yellow", "bold": false}, "priority": 10}
+				{"pattern": "(?:^|\\s)//.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
+				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 35},
+				{"pattern": "`[^`]*`", "style": {"color": "green", "bold": false}, "priority": 35},
+				{"pattern": "'([^'\\\\]|\\\\.)'", "style": {"color": "green", "bold": false}, "priority": 35},
+				{"pattern": "\\b(break|case|chan|const|continue|default|defer|else|fallthrough|for|func|go|goto|if|import|interface|map|package|range|return|select|struct|switch|type|var)\\b", "style": {"color": "yellow", "bold": false}, "priority": 10},
+				{"pattern": "\\w+\\(", "style": {"color": "yellow", "bold": false}, "priority": 8},
+				{"pattern": "[\\(\\)\\[\\]\\{\\}]", "style": {"color": "purple", "bold": false}, "priority": 11},
+				{"pattern": "\\b\\d+(\\.\\d+)?\\b", "style": {"color": "blue", "bold": true}, "priority": 5}
 			]
 		}
 	},

@@ -83,6 +83,9 @@ target_link_libraries(ef_core PUBLIC ${NCURSES_LIBRARIES} ${PCRE2_LIBRARIES})
 add_executable(ef src/main.c)
 target_link_libraries(ef PRIVATE ef_core)
 
+# Install
+install(TARGETS ef DESTINATION bin)
+
 # Tests
 enable_testing()
 add_subdirectory(tests)
