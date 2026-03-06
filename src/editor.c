@@ -5,7 +5,6 @@
 #include "runes.h"
 #include "autocomplete.h"
 #include "syntax.h"
-#include "log.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -72,8 +71,6 @@ static void setup_buffer_highlighting(EditorConfig *cfg, Buffer *buf) {
     SyntaxHighlighter *h = syntax_highlighter_new(ftc->syntax_rules,
                                                    ftc->rule_count);
     buf->highlight_cache = highlight_cache_new(h);
-    log_write("syntax: loaded %d rules for %s (%s)",
-              ftc->rule_count, ft, buf->filename);
 }
 
 Editor *editor_new(FileInfo *files, int file_count, SplitMode split_mode) {
@@ -115,7 +112,6 @@ Editor *editor_new(FileInfo *files, int file_count, SplitMode split_mode) {
     /* Load config and set up syntax highlighting */
     ed->config = config_load(NULL);
     if (ed->config) {
-        log_write("config loaded, %d file type(s)", ed->config->file_type_count);
         for (int i = 0; i < ed->buffer_count; i++)
             setup_buffer_highlighting(ed->config, ed->buffer_registry[i]);
     }

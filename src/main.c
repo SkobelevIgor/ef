@@ -1,6 +1,5 @@
 #include "config.h"
 #include "editor.h"
-#include "log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,9 +59,6 @@ int main(int argc, char *argv[]) {
 
     config_ensure_default(NULL);
 
-    log_open("edit.log");
-    log_write("editor starting, %d file(s)", nargs);
-
     Editor *ed = editor_new(files, nargs, split);
     if (!ed) {
         fprintf(stderr, "Error: failed to initialize editor\n");
@@ -72,9 +68,6 @@ int main(int argc, char *argv[]) {
     }
 
     int ret = editor_run(ed);
-
-    log_write("editor exiting, code=%d", ret);
-    log_close();
 
     editor_free(ed);
     for (int i = 0; i < nargs; i++) free(files[i].filename);

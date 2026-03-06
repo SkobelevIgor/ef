@@ -62,7 +62,6 @@ add_library(ef_core STATIC
     src/search.c
     src/widget.c
     src/autocomplete.c
-    src/log.c
     src/config.c
     src/syntax.c
     src/file_watcher.c
