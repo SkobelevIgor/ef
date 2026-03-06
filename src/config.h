@@ -36,6 +36,10 @@ typedef struct {
     int                   file_type_count;
 } EditorConfig;
 
+/* Write default config to path if it doesn't exist (NULL = ~/.efconfig).
+   Returns true if file was created, false if it already existed or on error. */
+bool config_ensure_default(const char *path);
+
 /* Load config from path (NULL = ~/.efconfig). Returns NULL on failure. */
 EditorConfig *config_load(const char *path);
 

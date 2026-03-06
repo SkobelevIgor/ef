@@ -173,6 +173,54 @@ void test_free_null(void) {
     config_free(NULL); /* Should not crash */
 }
 
+/* --- config_ensure_default tests ----------------------------------------- */
+
+void test_ensure_default_creates_file(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_ensure_%d.json", getpid());
+    unlink(path);
+
+    bool created = config_ensure_default(path);
+    TEST_ASSERT_TRUE(created);
+
+    /* File must exist and be valid config */
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_GREATER_THAN(0, cfg->file_type_count);
+    config_free(cfg);
+    unlink(path);
+}
+
+void test_ensure_default_skips_existing(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_ensure_%d.json", getpid());
+
+    /* Write a custom config */
+    FILE *f = fopen(path, "w");
+    fprintf(f, "{\"file_types\":{}}");
+    fclose(f);
+
+    bool created = config_ensure_default(path);
+    TEST_ASSERT_FALSE(created);
+
+    /* File content should be unchanged (empty file_types) */
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(0, cfg->file_type_count);
+    config_free(cfg);
+    unlink(path);
+}
+
+void test_ensure_default_null_uses_home(void) {
+    /* Just verify it doesn't crash with NULL path */
+    config_ensure_default(NULL);
+}
+
+void test_ensure_default_bad_path(void) {
+    bool created = config_ensure_default("/nonexistent_dir/sub/ef.json");
+    TEST_ASSERT_FALSE(created);
+}
+
 /* --- Runner -------------------------------------------------------------- */
 
 int main(void) {
@@ -189,6 +237,10 @@ int main(void) {
     RUN_TEST(test_detect_null_args);
     RUN_TEST(test_get_unknown_type);
     RUN_TEST(test_free_null);
+    RUN_TEST(test_ensure_default_creates_file);
+    RUN_TEST(test_ensure_default_skips_existing);
+    RUN_TEST(test_ensure_default_null_uses_home);
+    RUN_TEST(test_ensure_default_bad_path);
 
     return UNITY_END();
 }

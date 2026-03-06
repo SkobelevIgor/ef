@@ -1,3 +1,4 @@
+#include "config.h"
 #include "editor.h"
 #include "log.h"
 
@@ -56,6 +57,8 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < nargs; i++) {
         parse_file_arg(args[i], &files[i].filename, &files[i].line);
     }
+
+    config_ensure_default(NULL);
 
     log_open("edit.log");
     log_write("editor starting, %d file(s)", nargs);

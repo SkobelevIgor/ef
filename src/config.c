@@ -1,10 +1,12 @@
 #include "config.h"
+#include "default_config.h"
 #include "cJSON.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 
 static char *read_file_contents(const char *path) {
     FILE *f = fopen(path, "r");
@@ -78,15 +80,38 @@ static void parse_file_type(cJSON *ft, EditorFileTypeConfig *ftc) {
         parse_syntax_rules(rules, ftc);
 }
 
+static bool resolve_config_path(const char *path, char *out, size_t len) {
+    if (path) {
+        snprintf(out, len, "%s", path);
+        return true;
+    }
+    const char *home = getenv("HOME");
+    if (!home) return false;
+    snprintf(out, len, "%s/.efconfig", home);
+    return true;
+}
+
+bool config_ensure_default(const char *path) {
+    char config_path[512];
+    if (!resolve_config_path(path, config_path, sizeof(config_path)))
+        return false;
+
+    struct stat st;
+    if (stat(config_path, &st) == 0)
+        return false;
+
+    FILE *f = fopen(config_path, "w");
+    if (!f) return false;
+
+    fwrite(default_config_data, 1, default_config_len, f);
+    fclose(f);
+    return true;
+}
+
 EditorConfig *config_load(const char *path) {
     char config_path[512];
-    if (path) {
-        snprintf(config_path, sizeof(config_path), "%s", path);
-    } else {
-        const char *home = getenv("HOME");
-        if (!home) return NULL;
-        snprintf(config_path, sizeof(config_path), "%s/.efconfig", home);
-    }
+    if (!resolve_config_path(path, config_path, sizeof(config_path)))
+        return NULL;
 
     char *json_str = read_file_contents(config_path);
     if (!json_str) return NULL;
