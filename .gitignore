@@ -7,6 +7,9 @@ main
 *.swp
 *.swo
 
+# Log files
+*.log
+
 # Test files
 test*.txt
 
