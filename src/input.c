@@ -26,6 +26,7 @@ void input_state_reset(InputState *s) {
     s->pending_operator = 0;
     s->pending_mark = false;
     s->pending_jump_to_mark = false;
+    s->map_buf_len = 0;
 }
 
 int input_state_get_count(const InputState *s) {
@@ -48,4 +49,19 @@ void input_state_save_last_find(InputState *s, wchar_t ch, bool forward) {
     s->last_find_char = ch;
     s->last_find_forward = forward;
     s->has_last_find = true;
+}
+
+void input_state_map_push(InputState *s, wchar_t ch) {
+    if (s->map_buf_len < MAP_BUF_SIZE) {
+        s->map_buf[s->map_buf_len++] = ch;
+    } else {
+        /* Shift left to make room */
+        for (int i = 0; i < MAP_BUF_SIZE - 1; i++)
+            s->map_buf[i] = s->map_buf[i + 1];
+        s->map_buf[MAP_BUF_SIZE - 1] = ch;
+    }
+}
+
+void input_state_map_clear(InputState *s) {
+    s->map_buf_len = 0;
 }

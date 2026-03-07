@@ -29,11 +29,19 @@ typedef struct {
     int               rule_count;
 } EditorFileTypeConfig;
 
+/* A single key mapping (trigger → expansion). */
+typedef struct {
+    char *trigger;    /* e.g. "((" */
+    char *expansion;  /* e.g. "()<Esc>ha" */
+} EditorMapConfig;
+
 /* Top-level editor configuration loaded from ~/.efconfig. */
 typedef struct {
     EditorFileTypeConfig *file_types;
     char                **file_type_names;
     int                   file_type_count;
+    EditorMapConfig      *maps;
+    int                   map_count;
 } EditorConfig;
 
 /* Write default config to path if it doesn't exist (NULL = ~/.efconfig).

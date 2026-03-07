@@ -28,6 +28,11 @@ typedef struct {
     bool pending_mark;
     bool pending_jump_to_mark;
 
+    /* Map buffer for tracking recent keystrokes */
+#define MAP_BUF_SIZE 16
+    wchar_t map_buf[MAP_BUF_SIZE];
+    int     map_buf_len;
+
     /* Autocomplete state (NULL when not active) */
     AutocompleteState *autocomplete;
 } InputState;
@@ -39,5 +44,7 @@ int  input_state_get_count(const InputState *s);
 void input_state_add_digit(InputState *s, int d);
 bool input_state_has_pending(const InputState *s);
 void input_state_save_last_find(InputState *s, wchar_t ch, bool forward);
+void input_state_map_push(InputState *s, wchar_t ch);
+void input_state_map_clear(InputState *s);
 
 #endif /* EF_INPUT_H */

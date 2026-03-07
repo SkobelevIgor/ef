@@ -2,6 +2,7 @@
 #include "editor.h"
 #include "insert.h"
 #include "autocomplete.h"
+#include "config.h"
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
@@ -275,6 +276,86 @@ void test_ctrl_p_navigates_autocomplete_up(void) {
     TEST_ASSERT_EQUAL_INT(1, p->cursor_row); /* cursor didn't move */
 }
 
+/* --- Map expansion tests ------------------------------------------------- */
+
+static EditorConfig *make_map_config(void) {
+    EditorConfig *cfg = calloc(1, sizeof(EditorConfig));
+    cfg->map_count = 2;
+    cfg->maps = calloc(2, sizeof(EditorMapConfig));
+    cfg->maps[0].trigger = strdup("((");
+    cfg->maps[0].expansion = strdup("()<Esc>ha");
+    cfg->maps[1].trigger = strdup("[[");
+    cfg->maps[1].expansion = strdup("[]<Esc>ha");
+    return cfg;
+}
+
+static void setup_editor_with_maps(const wchar_t *lines[], int count) {
+    setup_editor(lines, count);
+    ed->config = make_map_config();
+}
+
+void test_map_paren_expansion(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor_with_maps(lines, 1);
+
+    /* Type "((" — should expand to "()" with cursor between */
+    send_char(L'(');
+    send_char(L'(');
+
+    TEST_ASSERT_EQUAL_INT(MODE_INSERT, ed->mode);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"()", 2));
+    /* Cursor should be between parens (col 1) */
+    TEST_ASSERT_EQUAL_INT(1, editor_active_pane(ed)->cursor_col);
+}
+
+void test_map_bracket_expansion(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor_with_maps(lines, 1);
+
+    send_char(L'[');
+    send_char(L'[');
+
+    TEST_ASSERT_EQUAL_INT(MODE_INSERT, ed->mode);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"[]", 2));
+    TEST_ASSERT_EQUAL_INT(1, editor_active_pane(ed)->cursor_col);
+}
+
+void test_map_no_match_single_paren(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor_with_maps(lines, 1);
+
+    send_char(L'(');
+    send_char(L'x');
+
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"(x", 2));
+}
+
+void test_map_no_config_no_crash(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+    /* ed->config is NULL, type "((" normally */
+    send_char(L'(');
+    send_char(L'(');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"((", 2));
+}
+
+void test_map_expansion_with_existing_text(void) {
+    const wchar_t *lines[] = {L"hello "};
+    setup_editor_with_maps(lines, 1);
+    editor_active_pane(ed)->cursor_col = 6;
+
+    send_char(L'(');
+    send_char(L'(');
+
+    TEST_ASSERT_EQUAL_INT(8, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"hello ()", 8));
+    TEST_ASSERT_EQUAL_INT(7, editor_active_pane(ed)->cursor_col);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -293,5 +374,10 @@ int main(void) {
     RUN_TEST(test_enter_accepts_autocomplete);
     RUN_TEST(test_ctrl_n_navigates_autocomplete_down);
     RUN_TEST(test_ctrl_p_navigates_autocomplete_up);
+    RUN_TEST(test_map_paren_expansion);
+    RUN_TEST(test_map_bracket_expansion);
+    RUN_TEST(test_map_no_match_single_paren);
+    RUN_TEST(test_map_no_config_no_crash);
+    RUN_TEST(test_map_expansion_with_existing_text);
     return UNITY_END();
 }

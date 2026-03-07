@@ -1,8 +1,11 @@
 #include "insert.h"
 #include "editor.h"
 #include "autocomplete.h"
+#include "config.h"
 
 #include <ncurses.h>
+#include <string.h>
+#include <stdlib.h>
 
 static void dismiss_ac(Editor *ed) {
     if (ed->input_state->autocomplete) {
@@ -115,6 +118,63 @@ static void handle_special_keys(Editor *ed, EditorEvent *ev) {
     }
 }
 
+/* Parse the next token from an expansion string.
+   Returns the number of bytes consumed, sets *out to the character. */
+static int parse_expansion_token(const char *s, wchar_t *out) {
+    if (s[0] == '<') {
+        if (strncmp(s, "<Esc>", 5) == 0) { *out = 27; return 5; }
+        if (strncmp(s, "<Enter>", 7) == 0) { *out = L'\n'; return 7; }
+        if (strncmp(s, "<Tab>", 5) == 0) { *out = L'\t'; return 5; }
+    }
+    *out = (wchar_t)(unsigned char)s[0];
+    return 1;
+}
+
+static void replay_expansion(Editor *ed, const char *expansion) {
+    const char *p = expansion;
+    while (*p) {
+        wchar_t ch;
+        int consumed = parse_expansion_token(p, &ch);
+        p += consumed;
+        EditorEvent ev = {EV_KEY, (int)ch, ch, true};
+        editor_handle_key(ed, &ev);
+    }
+}
+
+static bool check_map_trigger(Editor *ed) {
+    EditorConfig *cfg = ed->config;
+    if (!cfg || cfg->map_count == 0) return false;
+
+    InputState *is = ed->input_state;
+    for (int i = 0; i < cfg->map_count; i++) {
+        const char *trigger = cfg->maps[i].trigger;
+        int tlen = (int)strlen(trigger);
+        if (tlen > is->map_buf_len) continue;
+
+        /* Compare tail of map_buf with trigger */
+        bool match = true;
+        for (int j = 0; j < tlen; j++) {
+            wchar_t expected = (wchar_t)(unsigned char)trigger[j];
+            wchar_t actual = is->map_buf[is->map_buf_len - tlen + j];
+            if (actual != expected) { match = false; break; }
+        }
+        if (!match) continue;
+
+        /* Delete the trigger chars via backspace */
+        Pane *pane = editor_active_pane(ed);
+        Buffer *buf = pane->buffer;
+        for (int j = 0; j < tlen; j++) {
+            buffer_delete_char(buf, pane->cursor_row, pane->cursor_col,
+                               &pane->cursor_row, &pane->cursor_col);
+        }
+
+        input_state_map_clear(is);
+        replay_expansion(ed, cfg->maps[i].expansion);
+        return true;
+    }
+    return false;
+}
+
 static void handle_char_keys(Editor *ed, wchar_t ch) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
@@ -173,7 +233,11 @@ static void handle_char_keys(Editor *ed, wchar_t ch) {
         pane->cursor_col = buffer_insert_char(buf, pane->cursor_row,
                                               pane->cursor_col, ch);
         editor_schedule_auto_save(ed);
-        editor_trigger_autocomplete(ed);
+
+        /* Push to map buffer and check for trigger match */
+        input_state_map_push(ed->input_state, ch);
+        if (!check_map_trigger(ed))
+            editor_trigger_autocomplete(ed);
     }
 }
 

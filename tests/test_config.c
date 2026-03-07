@@ -221,6 +221,84 @@ void test_ensure_default_bad_path(void) {
     TEST_ASSERT_FALSE(created);
 }
 
+/* --- Maps tests ---------------------------------------------------------- */
+
+static const char *MAPS_CONFIG =
+    "{"
+    "  \"file_types\": {},"
+    "  \"maps\": {"
+    "    \"((\": \"()<Esc>ha\","
+    "    \"{{\": \"{}<Esc>ha<Enter><Esc>ko<Tab>\""
+    "  }"
+    "}";
+
+static const char *NO_MAPS_CONFIG =
+    "{"
+    "  \"file_types\": {}"
+    "}";
+
+void test_maps_parsed(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_maps_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "%s", MAPS_CONFIG);
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(2, cfg->map_count);
+
+    /* Find the "((" mapping */
+    bool found_paren = false, found_brace = false;
+    for (int i = 0; i < cfg->map_count; i++) {
+        if (strcmp(cfg->maps[i].trigger, "((") == 0) {
+            TEST_ASSERT_EQUAL_STRING("()<Esc>ha", cfg->maps[i].expansion);
+            found_paren = true;
+        }
+        if (strcmp(cfg->maps[i].trigger, "{{") == 0) {
+            TEST_ASSERT_EQUAL_STRING("{}<Esc>ha<Enter><Esc>ko<Tab>",
+                                     cfg->maps[i].expansion);
+            found_brace = true;
+        }
+    }
+    TEST_ASSERT_TRUE(found_paren);
+    TEST_ASSERT_TRUE(found_brace);
+
+    unlink(path);
+    config_free(cfg);
+}
+
+void test_maps_no_maps_section(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_nomaps_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "%s", NO_MAPS_CONFIG);
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(0, cfg->map_count);
+    TEST_ASSERT_NULL(cfg->maps);
+
+    unlink(path);
+    config_free(cfg);
+}
+
+void test_maps_empty_maps_section(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_emptymaps_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "{\"file_types\":{},\"maps\":{}}");
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(0, cfg->map_count);
+
+    unlink(path);
+    config_free(cfg);
+}
+
 /* --- Runner -------------------------------------------------------------- */
 
 int main(void) {
@@ -241,6 +319,9 @@ int main(void) {
     RUN_TEST(test_ensure_default_skips_existing);
     RUN_TEST(test_ensure_default_null_uses_home);
     RUN_TEST(test_ensure_default_bad_path);
+    RUN_TEST(test_maps_parsed);
+    RUN_TEST(test_maps_no_maps_section);
+    RUN_TEST(test_maps_empty_maps_section);
 
     return UNITY_END();
 }

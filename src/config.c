@@ -138,6 +138,24 @@ EditorConfig *config_load(const char *path) {
         cfg->file_type_count = idx;
     }
 
+    cJSON *maps = cJSON_GetObjectItem(root, "maps");
+    if (maps && cJSON_IsObject(maps)) {
+        int count = cJSON_GetArraySize(maps);
+        if (count > 0) {
+            cfg->maps = calloc(count, sizeof(EditorMapConfig));
+            cJSON *m;
+            int idx = 0;
+            cJSON_ArrayForEach(m, maps) {
+                if (cJSON_IsString(m) && m->string) {
+                    cfg->maps[idx].trigger = strdup(m->string);
+                    cfg->maps[idx].expansion = strdup(m->valuestring);
+                    idx++;
+                }
+            }
+            cfg->map_count = idx;
+        }
+    }
+
     cJSON_Delete(root);
     return cfg;
 }
@@ -182,5 +200,10 @@ void config_free(EditorConfig *cfg) {
     }
     free(cfg->file_types);
     free(cfg->file_type_names);
+    for (int i = 0; i < cfg->map_count; i++) {
+        free(cfg->maps[i].trigger);
+        free(cfg->maps[i].expansion);
+    }
+    free(cfg->maps);
     free(cfg);
 }
