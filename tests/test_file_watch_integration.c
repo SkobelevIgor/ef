@@ -1,5 +1,5 @@
 #include "unity.h"
-#include "editor.h"
+#include "test_helpers.h"
 #include "file_watcher.h"
 
 #include <stdio.h>
@@ -7,24 +7,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <locale.h>
-
-/* Mock screen vtable */
-static void mock_render(void *s, Pane **p, int n, int a,
-                        Mode m, InputState *i, SplitMode sp)
-{ (void)s;(void)p;(void)n;(void)a;(void)m;(void)i;(void)sp; }
-static int mock_poll(void *s, EditorEvent *e)
-{ (void)s;(void)e; return 0; }
-static void mock_size(void *s, int *w, int *h)
-{ (void)s; *w = 80; *h = 24; }
-static void mock_sync(void *s) { (void)s; }
-static void mock_close(void *s) { (void)s; }
-static void mock_suspend(void *s) { (void)s; }
-static void mock_resume(void *s) { (void)s; }
-
-static ScreenVTable mock_screen = {
-    mock_render, mock_poll, mock_size, mock_sync,
-    mock_close, mock_suspend, mock_resume, NULL
-};
 
 static Editor *ed;
 static char tmppath[256];
@@ -41,7 +23,7 @@ static void setup_editor_with_file(const char *content) {
     create_file(content);
     Buffer *buf = buffer_new_from_file(tmppath);
     Pane *p = pane_new(buf);
-    ed = editor_new_with_deps(&mock_screen, &buf, &p, 1,
+    ed = editor_new_with_deps(&test_mock_screen, &buf, &p, 1,
                               SPLIT_HORIZONTAL);
 }
 

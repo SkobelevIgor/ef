@@ -47,4 +47,18 @@ void input_state_save_last_find(InputState *s, wchar_t ch, bool forward);
 void input_state_map_push(InputState *s, wchar_t ch);
 void input_state_map_clear(InputState *s);
 
+/* Shared input handlers used by both normal.c and visual.c.
+   Include pane.h and screen.h before calling these. */
+
+typedef struct Pane Pane;
+
+/* Handle a find-char pending event. Resets pending state.
+   ev must point to an EditorEvent. */
+bool input_handle_find_char(InputState *is, Pane *pane,
+                            void *ev, int count);
+
+/* Handle a goto-line pending event. Resets pending state on Enter/Escape.
+   ev must point to an EditorEvent. */
+bool input_handle_goto_line(InputState *is, Pane *pane, void *ev);
+
 #endif /* EF_INPUT_H */

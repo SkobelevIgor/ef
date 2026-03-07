@@ -1,51 +1,16 @@
 #include "unity.h"
-#include "editor.h"
+#include "test_helpers.h"
 #include "widget.h"
 #include "search.h"
 #include <stdlib.h>
 #include <locale.h>
 #include <ncurses.h>
 
-/* --- Mock screen --------------------------------------------------------- */
-static void mock_render(void *s, Pane **p, int n, int a, Mode m, InputState *i, SplitMode sp) {
-    (void)s;(void)p;(void)n;(void)a;(void)m;(void)i;(void)sp;
-}
-static int mock_poll(void *s, EditorEvent *ev) { (void)s;(void)ev; return 0; }
-static void mock_size(void *s, int *w, int *h) { (void)s; *w = 80; *h = 24; }
-static void mock_noop(void *s) { (void)s; }
-
-static ScreenVTable *make_mock_screen(void) {
-    ScreenVTable *vt = calloc(1, sizeof(ScreenVTable));
-    vt->render = mock_render;
-    vt->poll_event = mock_poll;
-    vt->get_size = mock_size;
-    vt->sync = mock_noop;
-    vt->close = mock_noop;
-    vt->suspend = mock_noop;
-    vt->resume = mock_noop;
-    return vt;
-}
-
-/* --- Test helpers -------------------------------------------------------- */
 static Editor *ed;
-static ScreenVTable *scr;
 static Buffer *buf;
 
 static void setup_editor(const wchar_t *lines[], int count) {
-    scr = make_mock_screen();
-    buf = buffer_new();
-    for (int i = 0; i < count; i++) {
-        int len = (int)wcslen(lines[i]);
-        wchar_t *l = malloc(sizeof(wchar_t) * (len + 1));
-        wmemcpy(l, lines[i], len); l[len] = L'\0';
-        if (i == 0) {
-            buffer_set_line(buf, 0, l, len);
-        } else {
-            buffer_insert_line_after(buf, buf->line_count - 1, l, len);
-        }
-    }
-    Pane *pane = pane_new(buf);
-    ed = editor_new_with_deps(scr, &buf, &pane, 1, SPLIT_HORIZONTAL);
+    test_setup_editor(lines, count, &ed, &buf);
 }
 
 static EditorEvent make_char_event(wchar_t ch) {
@@ -65,10 +30,10 @@ static EditorEvent make_key_event(int key) {
     return ev;
 }
 
-void setUp(void) { ed = NULL; scr = NULL; buf = NULL; }
+void setUp(void) { ed = NULL; buf = NULL; }
 void tearDown(void) {
     if (ed) editor_free(ed);
-    free(scr);
+    ed = NULL; buf = NULL;
 }
 
 /* --- openSearchWidget (F4) ----------------------------------------------- */
@@ -192,7 +157,7 @@ void test_close_confirmed_keeps_cursor(void) {
     int match_row = p->cursor_row;
     int match_col = p->cursor_col;
 
-    /* Escape after confirm → keeps cursor */
+    /* Escape after confirm -> keeps cursor */
     EditorEvent esc = make_key_event(27);
     editor_handle_widget_mode(ed, &esc);
 
@@ -387,7 +352,7 @@ void test_find_replace_repeated_enter(void) {
     editor_handle_widget_mode(ed, &enter);
     editor_handle_widget_mode(ed, &enter);
 
-    /* Both "hello" replaced with "hi" → "hi world hi" */
+    /* Both "hello" replaced with "hi" -> "hi world hi" */
     TEST_ASSERT_EQUAL_INT(11, buf->line_lens[0]);
 }
 
@@ -582,7 +547,7 @@ void test_escape_before_enter_restores_anchor(void) {
         editor_handle_widget_mode(ed, &ev);
     }
 
-    /* Escape WITHOUT Enter → restore anchor */
+    /* Escape WITHOUT Enter -> restore anchor */
     EditorEvent esc = make_char_event(27);
     editor_handle_widget_mode(ed, &esc);
     TEST_ASSERT_NULL(p->widget);
@@ -590,7 +555,7 @@ void test_escape_before_enter_restores_anchor(void) {
     TEST_ASSERT_EQUAL_INT(6, p->cursor_col);
 }
 
-/* --- FindReplace Enter flow: FindBar→ReplaceBar→Editor→Replace ---------- */
+/* --- FindReplace Enter flow: FindBar->ReplaceBar->Editor->Replace ------- */
 
 void test_fr_enter_on_findbar_moves_to_replacebar(void) {
     const wchar_t *lines[] = {L"hello world"};
@@ -602,7 +567,7 @@ void test_fr_enter_on_findbar_moves_to_replacebar(void) {
         editor_handle_widget_mode(ed, &ev);
     }
 
-    /* Enter on FindBar → focus moves to ReplaceBar */
+    /* Enter on FindBar -> focus moves to ReplaceBar */
     EditorEvent enter = make_char_event(L'\r');
     editor_handle_widget_mode(ed, &enter);
     TEST_ASSERT_EQUAL_INT(FOCUS_REPLACE_BAR, editor_active_pane(ed)->widget->focus);
@@ -616,7 +581,7 @@ void test_fr_enter_on_replacebar_moves_to_editor(void) {
     WidgetState *w = editor_active_pane(ed)->widget;
     w->focus = FOCUS_REPLACE_BAR;
 
-    /* Enter on ReplaceBar (even empty) → focus moves to Editor */
+    /* Enter on ReplaceBar (even empty) -> focus moves to Editor */
     EditorEvent enter = make_char_event(L'\r');
     editor_handle_widget_mode(ed, &enter);
     TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, w->focus);
@@ -664,7 +629,7 @@ void test_fr_full_lifecycle(void) {
     WidgetSession *s = p->widget->find_replace_session;
     TEST_ASSERT_TRUE(s->match_count >= 3);
 
-    /* 3. Enter → moves to replace bar */
+    /* 3. Enter -> moves to replace bar */
     EditorEvent enter = make_char_event(L'\r');
     editor_handle_widget_mode(ed, &enter);
     TEST_ASSERT_EQUAL_INT(FOCUS_REPLACE_BAR, p->widget->focus);
@@ -676,7 +641,7 @@ void test_fr_full_lifecycle(void) {
     }
     TEST_ASSERT_EQUAL_INT(2, s->replace_len);
 
-    /* 5. Enter → moves to editor */
+    /* 5. Enter -> moves to editor */
     editor_handle_widget_mode(ed, &enter);
     TEST_ASSERT_EQUAL_INT(FOCUS_EDITOR, p->widget->focus);
     TEST_ASSERT_TRUE(p->widget->confirmed);
@@ -692,9 +657,8 @@ void test_fr_full_lifecycle(void) {
     editor_handle_widget_mode(ed, &ev_N);
     TEST_ASSERT_EQUAL_INT(idx_before, s->current_index);
 
-    /* 7. Enter → replaces current match */
+    /* 7. Enter -> replaces current match */
     editor_handle_widget_mode(ed, &enter);
-    wchar_t *line = buf->lines[0];
     /* At least one "hello" replaced with "hi" */
     TEST_ASSERT_TRUE(buf->line_lens[0] < 29);
 

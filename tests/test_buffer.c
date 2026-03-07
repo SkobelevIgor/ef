@@ -334,6 +334,45 @@ void test_delete_char_at_out_of_bounds(void) {
     TEST_ASSERT_EQUAL_INT(0, del);
 }
 
+/* --- buffer_replace_all tests -------------------------------------------- */
+
+void test_replace_all_replaces_content(void) {
+    buffer_insert_char(buf, 0, 0, L'x');
+    /* Prepare source lines */
+    wchar_t *src[2];
+    int src_lens[2];
+    src[0] = malloc(sizeof(wchar_t) * 4);
+    wmemcpy(src[0], L"abc", 3); src[0][3] = L'\0'; src_lens[0] = 3;
+    src[1] = malloc(sizeof(wchar_t) * 4);
+    wmemcpy(src[1], L"def", 3); src[1][3] = L'\0'; src_lens[1] = 3;
+
+    buffer_replace_all(buf, src, src_lens, 2);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(3, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"abc", 3));
+    TEST_ASSERT_EQUAL_INT(3, buf->line_lens[1]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[1], L"def", 3));
+    /* src entries are owned by buffer now, don't free */
+}
+
+void test_replace_all_single_line(void) {
+    wchar_t *src[1];
+    int src_lens[1];
+    src[0] = malloc(sizeof(wchar_t) * 5);
+    wmemcpy(src[0], L"test", 4); src[0][4] = L'\0'; src_lens[0] = 4;
+
+    buffer_replace_all(buf, src, src_lens, 1);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(4, buf->line_lens[0]);
+}
+
+void test_replace_all_empty_source(void) {
+    buffer_insert_char(buf, 0, 0, L'x');
+    /* Replace with zero lines - should result in 0 line_count */
+    buffer_replace_all(buf, NULL, NULL, 0);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_count);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -366,5 +405,8 @@ int main(void) {
     RUN_TEST(test_insert_tab_expand);
     RUN_TEST(test_delete_char_at);
     RUN_TEST(test_delete_char_at_out_of_bounds);
+    RUN_TEST(test_replace_all_replaces_content);
+    RUN_TEST(test_replace_all_single_line);
+    RUN_TEST(test_replace_all_empty_source);
     return UNITY_END();
 }

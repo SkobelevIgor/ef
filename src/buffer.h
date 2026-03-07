@@ -144,6 +144,10 @@ void buffer_free_lines(wchar_t **lines, int *lens, int count);
 /* Deep-copy an array of lines. Caller must free with buffer_free_lines(). */
 wchar_t **buffer_copy_lines(wchar_t **lines, const int *lens, int count, int **out_lens);
 
+/* Replace all buffer lines with src. Takes ownership of src entries.
+   Caller frees the outer src/src_lens arrays. */
+void buffer_replace_all(Buffer *buf, wchar_t **src, int *src_lens, int count);
+
 /* Internal: set a line at a given row (takes ownership). */
 void buffer_set_line(Buffer *buf, int row, wchar_t *line, int len);
 

@@ -3,7 +3,7 @@ target_include_directories(unity PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/unity)
 
 # Macro to add a test
 macro(add_ef_test test_name)
-    add_executable(${test_name} ${test_name}.c)
+    add_executable(${test_name} ${test_name}.c test_helpers.c)
     target_link_libraries(${test_name} PRIVATE ef_core unity)
     add_test(NAME ${test_name} COMMAND ${test_name})
 endmacro()

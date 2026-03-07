@@ -297,16 +297,7 @@ void editor_undo(Editor *ed) {
             int *lens;
             wchar_t **lines = buffer_copy_lines(c->old_text, c->old_text_lens,
                                                 c->old_text_count, &lens);
-            /* Replace all buffer lines */
-            for (int i = 0; i < buf->line_count; i++) free(buf->lines[i]);
-            buf->line_count = 0;
-            buffer_ensure_lines(buf, c->old_text_count);
-            for (int i = 0; i < c->old_text_count; i++) {
-                buf->lines[i] = lines[i];
-                buf->line_lens[i] = lens[i];
-                buf->line_caps[i] = lens[i] + 1;
-            }
-            buf->line_count = c->old_text_count;
+            buffer_replace_all(buf, lines, lens, c->old_text_count);
             free(lines);
             free(lens);
         }
@@ -353,15 +344,7 @@ void editor_redo(Editor *ed) {
             int *lens;
             wchar_t **lines = buffer_copy_lines(c->text, c->text_lens,
                                                 c->text_count, &lens);
-            for (int i = 0; i < buf->line_count; i++) free(buf->lines[i]);
-            buf->line_count = 0;
-            buffer_ensure_lines(buf, c->text_count);
-            for (int i = 0; i < c->text_count; i++) {
-                buf->lines[i] = lines[i];
-                buf->line_lens[i] = lens[i];
-                buf->line_caps[i] = lens[i] + 1;
-            }
-            buf->line_count = c->text_count;
+            buffer_replace_all(buf, lines, lens, c->text_count);
             free(lines);
             free(lens);
         }
@@ -467,16 +450,12 @@ static void perform_paste(Editor *ed, bool before) {
 
     if (cb->is_line_mode) {
         paste_lines_mode(ed, before);
-    } else if (cb->line_count == 1) {
-        int insert_pos = before ? pane->cursor_col : pane->cursor_col + 1;
-        if (!before && insert_pos > buf->line_lens[pane->cursor_row])
-            insert_pos = buf->line_lens[pane->cursor_row];
-        paste_single_line(ed, insert_pos);
     } else {
         int insert_pos = before ? pane->cursor_col : pane->cursor_col + 1;
         if (!before && insert_pos > buf->line_lens[pane->cursor_row])
             insert_pos = buf->line_lens[pane->cursor_row];
-        paste_multiline(ed, insert_pos);
+        if (cb->line_count == 1) paste_single_line(ed, insert_pos);
+        else                     paste_multiline(ed, insert_pos);
     }
 
     Change *c = change_new(CHANGE_REPLACE, buf, pane->cursor_row, pane->cursor_col);

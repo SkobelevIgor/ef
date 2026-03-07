@@ -95,6 +95,20 @@ void buffer_set_line(Buffer *buf, int row, wchar_t *line, int len) {
     buf->line_caps[row] = len + 1;
 }
 
+void buffer_replace_all(Buffer *buf, wchar_t **src, int *src_lens, int count) {
+    for (int i = 0; i < buf->line_count; i++) free(buf->lines[i]);
+    buf->line_count = 0;
+    if (count > 0) {
+        buffer_ensure_lines(buf, count);
+        for (int i = 0; i < count; i++) {
+            buf->lines[i] = src[i];
+            buf->line_lens[i] = src_lens[i];
+            buf->line_caps[i] = src_lens[i] + 1;
+        }
+    }
+    buf->line_count = count;
+}
+
 /* --- Splice -------------------------------------------------------------- */
 
 void buffer_splice_lines(Buffer *buf, int start, int delete_count,

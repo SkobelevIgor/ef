@@ -1,4 +1,6 @@
 #include "input.h"
+#include "pane.h"
+#include "screen.h"
 #include "autocomplete.h"
 
 #include <stdlib.h>
@@ -64,4 +66,61 @@ void input_state_map_push(InputState *s, wchar_t ch) {
 
 void input_state_map_clear(InputState *s) {
     s->map_buf_len = 0;
+}
+
+bool input_handle_find_char(InputState *is, Pane *pane,
+                            void *ev_ptr, int count) {
+    EditorEvent *ev = (EditorEvent *)ev_ptr;
+    if (ev->is_char && ev->ch == 27) {
+        input_state_reset(is);
+        return false;
+    }
+    if (ev->is_char) {
+        wchar_t ch = ev->ch;
+        bool forward = is->pending_find_forward;
+        for (int i = 0; i < count; i++) {
+            if (forward) pane_find_char_forward(pane, ch);
+            else pane_find_char_backward(pane, ch);
+        }
+        input_state_save_last_find(is, ch, forward);
+        input_state_reset(is);
+    }
+    return false;
+}
+
+bool input_handle_goto_line(InputState *is, Pane *pane, void *ev_ptr) {
+    EditorEvent *ev = (EditorEvent *)ev_ptr;
+    if (ev->is_char && ev->ch == 27) {
+        input_state_reset(is);
+        return false;
+    }
+    if (ev->is_char && (ev->ch == L'\n' || ev->ch == L'\r')) {
+        if (is->goto_line_buf_len > 0) {
+            if (strcmp(is->goto_line_buffer, "0") == 0) {
+                pane_goto_line(pane, 1);
+            } else if (is->goto_line_buffer[0] == '$') {
+                pane_goto_line(pane, pane->buffer->line_count);
+            } else {
+                int line_num = atoi(is->goto_line_buffer);
+                if (line_num > 0) pane_goto_line(pane, line_num);
+            }
+        }
+        input_state_reset(is);
+        return false;
+    }
+    if (ev->is_char && (ev->ch == 127 || ev->ch == 8)) {
+        if (is->goto_line_buf_len > 0)
+            is->goto_line_buffer[--is->goto_line_buf_len] = '\0';
+        return false;
+    }
+    if (ev->is_char) {
+        wchar_t ch = ev->ch;
+        if ((ch >= L'0' && ch <= L'9') || ch == L'$') {
+            if (is->goto_line_buf_len < 62) {
+                is->goto_line_buffer[is->goto_line_buf_len++] = (char)ch;
+                is->goto_line_buffer[is->goto_line_buf_len] = '\0';
+            }
+        }
+    }
+    return false;
 }

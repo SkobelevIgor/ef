@@ -13,48 +13,12 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
 
     /* Pending find char */
     if (is->pending_find_forward || is->pending_find_backward) {
-        if (ev->is_char && ev->ch == 27) {
-            input_state_reset(is);
-            return false;
-        }
-        if (ev->is_char) {
-            bool forward = is->pending_find_forward;
-            if (forward) pane_find_char_forward(pane, ev->ch);
-            else pane_find_char_backward(pane, ev->ch);
-            input_state_save_last_find(is, ev->ch, forward);
-            input_state_reset(is);
-        }
-        return false;
+        return input_handle_find_char(is, pane, ev, 1);
     }
 
     /* Pending goto line */
     if (is->pending_goto_line) {
-        if (ev->is_char && ev->ch == 27) {
-            input_state_reset(is);
-            return false;
-        }
-        if (ev->is_char && (ev->ch == L'\n' || ev->ch == L'\r')) {
-            if (is->goto_line_buf_len > 0) {
-                if (is->goto_line_buffer[0] == '$') {
-                    pane_goto_line(pane, buf->line_count);
-                } else {
-                    int ln = atoi(is->goto_line_buffer);
-                    if (ln > 0) pane_goto_line(pane, ln);
-                }
-            }
-            input_state_reset(is);
-            return false;
-        }
-        if (ev->is_char) {
-            wchar_t ch = ev->ch;
-            if ((ch >= L'0' && ch <= L'9') || ch == L'$') {
-                if (is->goto_line_buf_len < 62) {
-                    is->goto_line_buffer[is->goto_line_buf_len++] = (char)ch;
-                    is->goto_line_buffer[is->goto_line_buf_len] = '\0';
-                }
-            }
-        }
-        return false;
+        return input_handle_goto_line(is, pane, ev);
     }
 
     if (ev->type != EV_KEY) return false;
@@ -184,32 +148,12 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
         break;
     }
 
-    case L'>': {
+    case L'>': case L'<': case L'=': {
         int sr, sc, er, ec;
         pane_get_selection(pane, &sr, &sc, &er, &ec);
-        buffer_indent_range(buf, sr, er);
-        ed->mode = MODE_NORMAL;
-        pane_clear_selection(pane);
-        input_state_reset(is);
-        editor_schedule_auto_save(ed);
-        break;
-    }
-
-    case L'<': {
-        int sr, sc, er, ec;
-        pane_get_selection(pane, &sr, &sc, &er, &ec);
-        buffer_unindent_range(buf, sr, er);
-        ed->mode = MODE_NORMAL;
-        pane_clear_selection(pane);
-        input_state_reset(is);
-        editor_schedule_auto_save(ed);
-        break;
-    }
-
-    case L'=': {
-        int sr, sc, er, ec;
-        pane_get_selection(pane, &sr, &sc, &er, &ec);
-        buffer_reindent_range(buf, sr, er);
+        if (ch == L'>') buffer_indent_range(buf, sr, er);
+        else if (ch == L'<') buffer_unindent_range(buf, sr, er);
+        else buffer_reindent_range(buf, sr, er);
         ed->mode = MODE_NORMAL;
         pane_clear_selection(pane);
         input_state_reset(is);

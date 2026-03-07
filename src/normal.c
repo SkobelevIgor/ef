@@ -277,117 +277,125 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
     return false;
 }
 
-static void handle_pending_operator(Editor *ed, wchar_t r) {
+/* --- Operator helpers ---------------------------------------------------- */
+
+static void handle_op_dd(Editor *ed, int count) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
+    int start_row = pane->cursor_row;
+    wchar_t **deleted = malloc(sizeof(wchar_t *) * count);
+    int *del_lens = malloc(sizeof(int) * count);
+    int actual = 0;
+    for (int i = 0; i < count && pane->cursor_row < buf->line_count; i++) {
+        deleted[i] = buffer_delete_line(buf, pane->cursor_row, &del_lens[i]);
+        actual++;
+    }
+    clipboard_set(ed->clipboard, deleted, del_lens, actual, true);
+    history_record_delete_lines(ed->history, buf, start_row,
+                                deleted, del_lens, actual);
+    for (int i = 0; i < actual; i++) free(deleted[i]);
+    free(deleted);
+    free(del_lens);
+    pane_clamp_cursor(pane);
+    editor_schedule_auto_save(ed);
+}
+
+static void handle_op_yy(Editor *ed, int count) {
+    Pane *pane = editor_active_pane(ed);
+    Buffer *buf = pane->buffer;
+    wchar_t **yanked = malloc(sizeof(wchar_t *) * count);
+    int *yank_lens = malloc(sizeof(int) * count);
+    int actual = 0;
+    for (int i = 0; i < count
+             && pane->cursor_row + i < buf->line_count; i++) {
+        yanked[i] = buffer_copy_line(buf, pane->cursor_row + i,
+                                     &yank_lens[i]);
+        actual++;
+    }
+    clipboard_set(ed->clipboard, yanked, yank_lens, actual, true);
+    for (int i = 0; i < actual; i++) free(yanked[i]);
+    free(yanked);
+    free(yank_lens);
+}
+
+static void normal_delete_range(Editor *ed, int sr, int sc, int er, int ec) {
+    Pane *pane = editor_active_pane(ed);
+    Buffer *buf = pane->buffer;
+    pane->cursor_row = sr;
+    pane->cursor_col = sc;
+    int *del_lens;
+    int del_count;
+    wchar_t **deleted = buffer_delete_range(buf, sr, sc, er, ec,
+                                            &del_lens, &del_count);
+    clipboard_set(ed->clipboard, deleted, del_lens, del_count, false);
+    history_record_delete(ed->history, buf, sr, sc,
+                          deleted, del_lens, del_count);
+    buffer_free_lines(deleted, del_lens, del_count);
+    editor_schedule_auto_save(ed);
+}
+
+static void handle_op_dw(Editor *ed, int count) {
+    Pane *pane = editor_active_pane(ed);
+    int sr = pane->cursor_row, sc = pane->cursor_col;
+    for (int i = 0; i < count; i++) pane_move_to_next_word(pane);
+    int er = pane->cursor_row, ec = pane->cursor_col;
+    normal_delete_range(ed, sr, sc, er, ec);
+}
+
+static void handle_op_db(Editor *ed, int count) {
+    Pane *pane = editor_active_pane(ed);
+    int er = pane->cursor_row, ec = pane->cursor_col;
+    for (int i = 0; i < count; i++) pane_move_to_prev_word(pane);
+    int sr = pane->cursor_row, sc = pane->cursor_col;
+    normal_delete_range(ed, sr, sc, er, ec);
+}
+
+static void normal_delete_to_col(Editor *ed, int from, int to) {
+    Pane *pane = editor_active_pane(ed);
+    Buffer *buf = pane->buffer;
+    int del_len = to - from;
+    wchar_t *del = malloc(sizeof(wchar_t) * (del_len + 1));
+    wmemcpy(del, buf->lines[pane->cursor_row] + from, del_len);
+    del[del_len] = L'\0';
+    int new_len;
+    wchar_t *nl = remove_runes(buf->lines[pane->cursor_row],
+                               buf->line_lens[pane->cursor_row],
+                               from, to, &new_len);
+    buffer_set_line(buf, pane->cursor_row, nl, new_len);
+    clipboard_set(ed->clipboard, &del, &del_len, 1, false);
+    history_record_delete(ed->history, buf, pane->cursor_row,
+                          from, &del, &del_len, 1);
+    free(del);
+    pane->cursor_col = from;
+    buf->modified = true;
+    editor_schedule_auto_save(ed);
+}
+
+static void handle_op_d_dollar(Editor *ed) {
+    Pane *pane = editor_active_pane(ed);
+    Buffer *buf = pane->buffer;
+    int line_len = buf->line_lens[pane->cursor_row];
+    if (pane->cursor_col < line_len)
+        normal_delete_to_col(ed, pane->cursor_col, line_len);
+}
+
+static void handle_op_d_zero(Editor *ed) {
+    Pane *pane = editor_active_pane(ed);
+    if (pane->cursor_col > 0)
+        normal_delete_to_col(ed, 0, pane->cursor_col);
+}
+
+static void handle_pending_operator(Editor *ed, wchar_t r) {
     InputState *is = ed->input_state;
     wchar_t op = is->pending_operator;
     int count = input_state_get_count(is);
 
-    if (op == L'd' && r == L'd') {
-        /* dd: delete lines */
-        int start_row = pane->cursor_row;
-        wchar_t **deleted = malloc(sizeof(wchar_t *) * count);
-        int *del_lens = malloc(sizeof(int) * count);
-        int actual = 0;
-        for (int i = 0; i < count && pane->cursor_row < buf->line_count; i++) {
-            deleted[i] = buffer_delete_line(buf, pane->cursor_row, &del_lens[i]);
-            actual++;
-        }
-        clipboard_set(ed->clipboard, deleted, del_lens, actual, true);
-        history_record_delete_lines(ed->history, buf, start_row,
-                                    deleted, del_lens, actual);
-        for (int i = 0; i < actual; i++) free(deleted[i]);
-        free(deleted);
-        free(del_lens);
-        pane_clamp_cursor(pane);
-        editor_schedule_auto_save(ed);
-    } else if (op == L'y' && r == L'y') {
-        /* yy: yank lines */
-        wchar_t **yanked = malloc(sizeof(wchar_t *) * count);
-        int *yank_lens = malloc(sizeof(int) * count);
-        int actual = 0;
-        for (int i = 0; i < count
-                 && pane->cursor_row + i < buf->line_count; i++) {
-            yanked[i] = buffer_copy_line(buf, pane->cursor_row + i,
-                                         &yank_lens[i]);
-            actual++;
-        }
-        clipboard_set(ed->clipboard, yanked, yank_lens, actual, true);
-        for (int i = 0; i < actual; i++) free(yanked[i]);
-        free(yanked);
-        free(yank_lens);
-    } else if (op == L'd' && r == L'w') {
-        /* dw: delete word */
-        int sr = pane->cursor_row, sc = pane->cursor_col;
-        for (int i = 0; i < count; i++) pane_move_to_next_word(pane);
-        int er = pane->cursor_row, ec = pane->cursor_col;
-        pane->cursor_row = sr;
-        pane->cursor_col = sc;
-        int *del_lens;
-        int del_count;
-        wchar_t **deleted = buffer_delete_range(buf, sr, sc, er, ec,
-                                                &del_lens, &del_count);
-        clipboard_set(ed->clipboard, deleted, del_lens, del_count, false);
-        history_record_delete(ed->history, buf, sr, sc,
-                              deleted, del_lens, del_count);
-        buffer_free_lines(deleted, del_lens, del_count);
-        editor_schedule_auto_save(ed);
-    } else if (op == L'd' && r == L'b') {
-        /* db: delete word backward */
-        int er = pane->cursor_row, ec = pane->cursor_col;
-        for (int i = 0; i < count; i++) pane_move_to_prev_word(pane);
-        int sr = pane->cursor_row, sc = pane->cursor_col;
-        int *del_lens;
-        int del_count;
-        wchar_t **deleted = buffer_delete_range(buf, sr, sc, er, ec,
-                                                &del_lens, &del_count);
-        clipboard_set(ed->clipboard, deleted, del_lens, del_count, false);
-        history_record_delete(ed->history, buf, sr, sc,
-                              deleted, del_lens, del_count);
-        buffer_free_lines(deleted, del_lens, del_count);
-        editor_schedule_auto_save(ed);
-    } else if (op == L'd' && r == L'$') {
-        /* d$: delete to end of line */
-        int line_len = buf->line_lens[pane->cursor_row];
-        if (pane->cursor_col < line_len) {
-            int del_len = line_len - pane->cursor_col;
-            wchar_t *del = malloc(sizeof(wchar_t) * (del_len + 1));
-            wmemcpy(del, buf->lines[pane->cursor_row] + pane->cursor_col, del_len);
-            del[del_len] = L'\0';
-            /* Truncate line */
-            int new_len;
-            wchar_t *nl = remove_runes(buf->lines[pane->cursor_row], line_len,
-                                       pane->cursor_col, line_len, &new_len);
-            buffer_set_line(buf, pane->cursor_row, nl, new_len);
-            clipboard_set(ed->clipboard, &del, &del_len, 1, false);
-            history_record_delete(ed->history, buf, pane->cursor_row,
-                                  pane->cursor_col, &del, &del_len, 1);
-            free(del);
-            buf->modified = true;
-            editor_schedule_auto_save(ed);
-        }
-    } else if (op == L'd' && r == L'0') {
-        /* d0: delete to beginning of line */
-        if (pane->cursor_col > 0) {
-            int del_len = pane->cursor_col;
-            wchar_t *del = malloc(sizeof(wchar_t) * (del_len + 1));
-            wmemcpy(del, buf->lines[pane->cursor_row], del_len);
-            del[del_len] = L'\0';
-            int new_len;
-            wchar_t *nl = remove_runes(buf->lines[pane->cursor_row],
-                                       buf->line_lens[pane->cursor_row],
-                                       0, del_len, &new_len);
-            buffer_set_line(buf, pane->cursor_row, nl, new_len);
-            clipboard_set(ed->clipboard, &del, &del_len, 1, false);
-            history_record_delete(ed->history, buf, pane->cursor_row, 0,
-                                  &del, &del_len, 1);
-            free(del);
-            pane->cursor_col = 0;
-            buf->modified = true;
-            editor_schedule_auto_save(ed);
-        }
-    }
+    if (op == L'd' && r == L'd')      handle_op_dd(ed, count);
+    else if (op == L'y' && r == L'y') handle_op_yy(ed, count);
+    else if (op == L'd' && r == L'w') handle_op_dw(ed, count);
+    else if (op == L'd' && r == L'b') handle_op_db(ed, count);
+    else if (op == L'd' && r == L'$') handle_op_d_dollar(ed);
+    else if (op == L'd' && r == L'0') handle_op_d_zero(ed);
 }
 
 static bool is_valid_mark_id(wchar_t ch) {
@@ -450,68 +458,10 @@ static bool handle_mark_input(Editor *ed, EditorEvent *ev) {
 }
 
 static bool handle_find_char_input(Editor *ed, EditorEvent *ev) {
-    Pane *pane = editor_active_pane(ed);
-    InputState *is = ed->input_state;
-    int count = input_state_get_count(is);
-
-    if (ev->is_char && ev->ch == 27) { /* Escape */
-        input_state_reset(is);
-        return false;
-    }
-
-    if (ev->is_char) {
-        wchar_t ch = ev->ch;
-        bool forward = is->pending_find_forward;
-        for (int i = 0; i < count; i++) {
-            if (forward) pane_find_char_forward(pane, ch);
-            else pane_find_char_backward(pane, ch);
-        }
-        input_state_save_last_find(is, ch, forward);
-        input_state_reset(is);
-    }
-    return false;
+    return input_handle_find_char(ed->input_state, editor_active_pane(ed),
+                                  ev, input_state_get_count(ed->input_state));
 }
 
 static bool handle_goto_line_input(Editor *ed, EditorEvent *ev) {
-    Pane *pane = editor_active_pane(ed);
-    InputState *is = ed->input_state;
-
-    if (ev->is_char && ev->ch == 27) { /* Escape */
-        input_state_reset(is);
-        return false;
-    }
-
-    if (ev->is_char && (ev->ch == L'\n' || ev->ch == L'\r')) { /* Enter */
-        if (is->goto_line_buf_len > 0) {
-            if (strcmp(is->goto_line_buffer, "0") == 0) {
-                pane_goto_line(pane, 1);
-            } else if (is->goto_line_buffer[0] == '$') {
-                pane_goto_line(pane, pane->buffer->line_count);
-            } else {
-                int line_num = atoi(is->goto_line_buffer);
-                if (line_num > 0) pane_goto_line(pane, line_num);
-            }
-        }
-        input_state_reset(is);
-        return false;
-    }
-
-    /* Backspace */
-    if (ev->is_char && (ev->ch == 127 || ev->ch == 8)) {
-        if (is->goto_line_buf_len > 0) {
-            is->goto_line_buffer[--is->goto_line_buf_len] = '\0';
-        }
-        return false;
-    }
-
-    if (ev->is_char) {
-        wchar_t ch = ev->ch;
-        if ((ch >= L'0' && ch <= L'9') || ch == L'$') {
-            if (is->goto_line_buf_len < 62) {
-                is->goto_line_buffer[is->goto_line_buf_len++] = (char)ch;
-                is->goto_line_buffer[is->goto_line_buf_len] = '\0';
-            }
-        }
-    }
-    return false;
+    return input_handle_goto_line(ed->input_state, editor_active_pane(ed), ev);
 }
