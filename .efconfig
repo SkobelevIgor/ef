@@ -63,6 +63,15 @@
 				{"pattern": "\\b0o[0-7]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5},
 				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
 			]
+		},
+		"yaml": {
+			"extensions": [".yml", ".yaml"],
+			"syntax_highlighting": false,
+			"tabstop": 2,
+			"shiftwidth": 2,
+			"autoindentation": true,
+			"expandtab": true,
+			"syntax_rules": []
 		}
 	},
 	"maps": {
