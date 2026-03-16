@@ -293,6 +293,11 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
         }
 
         int ln_w = line_number_width(buf->line_count);
+        /* Widen gutter if goto-line buffer needs more space */
+        if (i == active && input && input->pending_goto_line) {
+            int goto_w = input->goto_line_buf_len + 2; /* ':' + digits + space */
+            if (goto_w > ln_w) ln_w = goto_w;
+        }
         int text_w = lay->width - ln_w;
         if (text_w < 1) text_w = 1;
 
@@ -317,9 +322,15 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 ln_pair = PAIR_LINE_NUM;
             }
 
-            /* Draw line number */
-            char num_buf[16];
-            snprintf(num_buf, sizeof(num_buf), "%*d ", ln_w - 1, line_num);
+            /* Draw line number (or goto-line indicator) */
+            char num_buf[128];
+            if (is_current && i == active && input
+                && input->pending_goto_line) {
+                snprintf(num_buf, sizeof(num_buf), ":%-*s",
+                         ln_w - 1, input->goto_line_buffer);
+            } else {
+                snprintf(num_buf, sizeof(num_buf), "%*d ", ln_w - 1, line_num);
+            }
             attron(COLOR_PAIR(ln_pair) | (is_current ? A_BOLD : 0));
             mvaddstr(pane_y + screen_row, lay->start_x, num_buf);
             attroff(COLOR_PAIR(ln_pair) | (is_current ? A_BOLD : 0));
@@ -454,6 +465,10 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
             curs_set(1);
         } else {
             int ln_w = line_number_width(ap->buffer->line_count);
+            if (input && input->pending_goto_line) {
+                int goto_w = input->goto_line_buf_len + 2;
+                if (goto_w > ln_w) ln_w = goto_w;
+            }
             int cx, cy;
             calc_cursor_screen_pos(ap->buffer->lines, ap->buffer->line_lens,
                                    ap->cursor_row, ap->cursor_col,

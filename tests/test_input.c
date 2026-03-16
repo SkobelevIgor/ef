@@ -230,6 +230,128 @@ void test_handle_goto_line_backspace(void) {
     EditorEvent bs = {EV_KEY, 127, 127, true};
     input_handle_goto_line(is, pane, &bs);
     TEST_ASSERT_EQUAL_INT(0, is->goto_line_buf_len);
+    TEST_ASSERT_FALSE(is->pending_goto_line); /* auto-cancel on empty */
+
+    pane_free(pane);
+    buffer_free(buf);
+}
+
+void test_handle_goto_line_rejects_letters(void) {
+    is->pending_goto_line = true;
+    is->goto_line_buffer[0] = '\0';
+    is->goto_line_buf_len = 0;
+    Buffer *buf = buffer_new();
+    Pane *pane = pane_new(buf);
+
+    /* Letters should be ignored */
+    EditorEvent ev_a = {EV_KEY, (int)L'a', L'a', true};
+    input_handle_goto_line(is, pane, &ev_a);
+    TEST_ASSERT_EQUAL_INT(0, is->goto_line_buf_len);
+    TEST_ASSERT_TRUE(is->pending_goto_line);
+
+    EditorEvent ev_Z = {EV_KEY, (int)L'Z', L'Z', true};
+    input_handle_goto_line(is, pane, &ev_Z);
+    TEST_ASSERT_EQUAL_INT(0, is->goto_line_buf_len);
+
+    /* Digits should still work after rejected letters */
+    EditorEvent ev5 = {EV_KEY, (int)L'5', L'5', true};
+    input_handle_goto_line(is, pane, &ev5);
+    TEST_ASSERT_EQUAL_INT(1, is->goto_line_buf_len);
+    TEST_ASSERT_EQUAL_STRING("5", is->goto_line_buffer);
+
+    pane_free(pane);
+    buffer_free(buf);
+}
+
+void test_handle_goto_line_auto_cancel_on_empty(void) {
+    is->pending_goto_line = true;
+    is->goto_line_buffer[0] = '\0';
+    is->goto_line_buf_len = 0;
+    Buffer *buf = buffer_new();
+    Pane *pane = pane_new(buf);
+
+    /* Type a digit */
+    EditorEvent ev7 = {EV_KEY, (int)L'7', L'7', true};
+    input_handle_goto_line(is, pane, &ev7);
+    TEST_ASSERT_EQUAL_INT(1, is->goto_line_buf_len);
+    TEST_ASSERT_TRUE(is->pending_goto_line);
+
+    /* Backspace removes digit and auto-cancels */
+    EditorEvent bs = {EV_KEY, 127, 127, true};
+    input_handle_goto_line(is, pane, &bs);
+    TEST_ASSERT_FALSE(is->pending_goto_line);
+    TEST_ASSERT_EQUAL_INT(0, is->goto_line_buf_len);
+
+    pane_free(pane);
+    buffer_free(buf);
+}
+
+void test_handle_goto_line_backspace_on_empty_noop(void) {
+    is->pending_goto_line = true;
+    is->goto_line_buffer[0] = '\0';
+    is->goto_line_buf_len = 0;
+    Buffer *buf = buffer_new();
+    Pane *pane = pane_new(buf);
+
+    /* Backspace with no digits typed should be a no-op (stay in goto mode) */
+    EditorEvent bs = {EV_KEY, 127, 127, true};
+    input_handle_goto_line(is, pane, &bs);
+    TEST_ASSERT_TRUE(is->pending_goto_line);
+    TEST_ASSERT_EQUAL_INT(0, is->goto_line_buf_len);
+
+    pane_free(pane);
+    buffer_free(buf);
+}
+
+void test_handle_goto_line_buffer_capacity(void) {
+    is->pending_goto_line = true;
+    is->goto_line_buffer[0] = '\0';
+    is->goto_line_buf_len = 0;
+    Buffer *buf = buffer_new();
+    Pane *pane = pane_new(buf);
+
+    /* Fill to capacity (62 chars) */
+    for (int i = 0; i < 62; i++) {
+        EditorEvent ev = {EV_KEY, (int)L'1', L'1', true};
+        input_handle_goto_line(is, pane, &ev);
+    }
+    TEST_ASSERT_EQUAL_INT(62, is->goto_line_buf_len);
+
+    /* 63rd digit should be silently dropped */
+    EditorEvent ev63 = {EV_KEY, (int)L'9', L'9', true};
+    input_handle_goto_line(is, pane, &ev63);
+    TEST_ASSERT_EQUAL_INT(62, is->goto_line_buf_len);
+
+    pane_free(pane);
+    buffer_free(buf);
+}
+
+void test_handle_goto_line_large_number(void) {
+    is->pending_goto_line = true;
+    is->goto_line_buffer[0] = '\0';
+    is->goto_line_buf_len = 0;
+    Buffer *buf = buffer_new();
+    for (int i = 0; i < 4; i++) {
+        wchar_t *nl = malloc(sizeof(wchar_t) * 2);
+        nl[0] = L'a' + i; nl[1] = L'\0';
+        buffer_insert_line_after(buf, buf->line_count - 1, nl, 1);
+    }
+    Pane *pane = pane_new(buf);
+
+    /* Type 100000 */
+    const char *digits = "100000";
+    for (int i = 0; digits[i]; i++) {
+        EditorEvent ev = {EV_KEY, (int)digits[i], (wchar_t)digits[i], true};
+        input_handle_goto_line(is, pane, &ev);
+    }
+    TEST_ASSERT_EQUAL_INT(6, is->goto_line_buf_len);
+    TEST_ASSERT_EQUAL_STRING("100000", is->goto_line_buffer);
+    TEST_ASSERT_TRUE(is->pending_goto_line);
+
+    /* Enter goes to last line (clamped) */
+    EditorEvent enter = {EV_KEY, (int)L'\n', L'\n', true};
+    input_handle_goto_line(is, pane, &enter);
+    TEST_ASSERT_EQUAL_INT(buf->line_count - 1, pane->cursor_row);
 
     pane_free(pane);
     buffer_free(buf);
@@ -260,5 +382,10 @@ int main(void) {
     RUN_TEST(test_handle_goto_line_escape);
     RUN_TEST(test_handle_goto_line_dollar);
     RUN_TEST(test_handle_goto_line_backspace);
+    RUN_TEST(test_handle_goto_line_rejects_letters);
+    RUN_TEST(test_handle_goto_line_auto_cancel_on_empty);
+    RUN_TEST(test_handle_goto_line_backspace_on_empty_noop);
+    RUN_TEST(test_handle_goto_line_buffer_capacity);
+    RUN_TEST(test_handle_goto_line_large_number);
     return UNITY_END();
 }

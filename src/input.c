@@ -109,8 +109,12 @@ bool input_handle_goto_line(InputState *is, Pane *pane, void *ev_ptr) {
         return false;
     }
     if (ev->is_char && (ev->ch == 127 || ev->ch == 8)) {
-        if (is->goto_line_buf_len > 0)
+        if (is->goto_line_buf_len > 0) {
             is->goto_line_buffer[--is->goto_line_buf_len] = '\0';
+            if (is->goto_line_buf_len == 0) {
+                input_state_reset(is);
+            }
+        }
         return false;
     }
     if (ev->is_char) {

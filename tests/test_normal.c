@@ -339,6 +339,66 @@ void test_word_navigation_b(void) {
     TEST_ASSERT_EQUAL_INT(6, editor_active_pane(ed)->cursor_col);
 }
 
+void test_goto_line_rejects_letters(void) {
+    const wchar_t *lines[] = {L"1", L"2", L"3", L"4", L"5"};
+    setup_editor(lines, 5);
+
+    send_char(L':');
+    TEST_ASSERT_TRUE(ed->input_state->pending_goto_line);
+
+    /* Letter should be ignored */
+    send_char(L'a');
+    TEST_ASSERT_EQUAL_INT(0, ed->input_state->goto_line_buf_len);
+    TEST_ASSERT_TRUE(ed->input_state->pending_goto_line);
+
+    /* Digit should still work */
+    send_char(L'4');
+    TEST_ASSERT_EQUAL_INT(1, ed->input_state->goto_line_buf_len);
+
+    /* Enter to confirm */
+    EditorEvent ev = {EV_KEY, (int)L'\n', L'\n', true};
+    editor_handle_key(ed, &ev);
+    TEST_ASSERT_EQUAL_INT(3, editor_active_pane(ed)->cursor_row);
+}
+
+void test_goto_line_auto_cancel_on_empty(void) {
+    const wchar_t *lines[] = {L"1", L"2", L"3"};
+    setup_editor(lines, 3);
+
+    send_char(L':');
+    TEST_ASSERT_TRUE(ed->input_state->pending_goto_line);
+
+    send_char(L'5');
+    TEST_ASSERT_EQUAL_INT(1, ed->input_state->goto_line_buf_len);
+
+    /* Backspace removes digit and auto-cancels */
+    EditorEvent bs = {EV_KEY, 127, 127, true};
+    editor_handle_key(ed, &bs);
+    TEST_ASSERT_FALSE(ed->input_state->pending_goto_line);
+    TEST_ASSERT_EQUAL_INT(MODE_NORMAL, ed->mode);
+}
+
+void test_goto_line_large_number(void) {
+    const wchar_t *lines[] = {L"a", L"b", L"c"};
+    setup_editor(lines, 3);
+
+    send_char(L':');
+    /* Type 100000 */
+    send_char(L'1');
+    send_char(L'0');
+    send_char(L'0');
+    send_char(L'0');
+    send_char(L'0');
+    send_char(L'0');
+    TEST_ASSERT_EQUAL_INT(6, ed->input_state->goto_line_buf_len);
+    TEST_ASSERT_EQUAL_STRING("100000", ed->input_state->goto_line_buffer);
+
+    /* Enter - goes to last line (clamped) */
+    EditorEvent ev = {EV_KEY, (int)L'\n', L'\n', true};
+    editor_handle_key(ed, &ev);
+    TEST_ASSERT_EQUAL_INT(2, editor_active_pane(ed)->cursor_row);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -367,5 +427,8 @@ int main(void) {
     RUN_TEST(test_mark_escape_cancels);
     RUN_TEST(test_word_navigation_w);
     RUN_TEST(test_word_navigation_b);
+    RUN_TEST(test_goto_line_rejects_letters);
+    RUN_TEST(test_goto_line_auto_cancel_on_empty);
+    RUN_TEST(test_goto_line_large_number);
     return UNITY_END();
 }
