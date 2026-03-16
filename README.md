@@ -51,7 +51,12 @@ The binary is produced at `build/ef`.
 sudo cmake --install build
 ```
 
-Installs `ef` to `/usr/local/bin` by default. To choose a different prefix:
+Installs `ef` to `/usr/local/bin` by default. Also handles the default configuration file (`~/.efconfig`):
+
+- If `~/.efconfig` does not exist, it is created with the bundled defaults.
+- If `~/.efconfig` already exists, it is left untouched and `~/.efconfig.default` is installed with the latest defaults so you can diff and merge changes.
+
+To choose a different prefix:
 
 ```bash
 cmake -B build -DCMAKE_INSTALL_PREFIX=~/.local && cmake --build build && cmake --install build

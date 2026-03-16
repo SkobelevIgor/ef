@@ -85,6 +85,22 @@ target_link_libraries(ef PRIVATE ef_core)
 # Install
 install(TARGETS ef DESTINATION bin)
 
+set(EFCONFIG_SRC "${CMAKE_CURRENT_SOURCE_DIR}/.efconfig")
+install(CODE "
+    set(_src \"${EFCONFIG_SRC}\")
+    set(_home \"\$ENV{HOME}\")
+    set(_cfg \"\${_home}/.efconfig\")
+    set(_def \"\${_home}/.efconfig.default\")
+
+    file(INSTALL \"\${_src}\" DESTINATION \"\${_home}\" RENAME \".efconfig.default\")
+
+    if(EXISTS \"\${_cfg}\")
+        message(STATUS \"New defaults are available in ~/.efconfig.default\")
+    else()
+        file(INSTALL \"\${_src}\" DESTINATION \"\${_home}\" RENAME \".efconfig\")
+    endif()
+")
+
 # Tests
 enable_testing()
 add_subdirectory(tests)
