@@ -22,7 +22,7 @@ brew install ncurses pcre2
 ### Linux (Debian/Ubuntu)
 
 ```bash
-sudo apt install build-essential cmake libncursesw5-dev libpcre2-dev
+sudo apt install build-essential cmake libncursesw5-dev libpcre2-dev pkg-config
 ```
 
 ### Linux (Fedora/RHEL)

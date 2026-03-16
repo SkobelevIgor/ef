@@ -8,6 +8,49 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+/* Strip trailing commas before } and ] (JSONC tolerance).
+   Modifies the string in place. */
+static bool is_json_ws(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+/* Strip trailing commas before } and ] (JSONC tolerance).
+   Modifies the string in place. Handles strings/escapes to avoid
+   stripping commas inside quoted values. */
+static void strip_trailing_commas(char *json) {
+    size_t len = strlen(json);
+    size_t w = 0;
+    bool in_string = false;
+
+    for (size_t i = 0; i < len; i++) {
+        if (in_string) {
+            if (json[i] == '\\' && i + 1 < len) {
+                json[w++] = json[i++];
+                json[w++] = json[i];
+                continue;
+            }
+            if (json[i] == '"')
+                in_string = false;
+            json[w++] = json[i];
+            continue;
+        }
+        if (json[i] == '"') {
+            in_string = true;
+            json[w++] = json[i];
+            continue;
+        }
+        if (json[i] == ',') {
+            size_t j = i + 1;
+            while (j < len && is_json_ws(json[j]))
+                j++;
+            if (j < len && (json[j] == '}' || json[j] == ']'))
+                continue; /* skip trailing comma */
+        }
+        json[w++] = json[i];
+    }
+    json[w] = '\0';
+}
+
 static char *read_file_contents(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) return NULL;
@@ -116,6 +159,7 @@ EditorConfig *config_load(const char *path) {
     char *json_str = read_file_contents(config_path);
     if (!json_str) return NULL;
 
+    strip_trailing_commas(json_str);
     cJSON *root = cJSON_Parse(json_str);
     free(json_str);
     if (!root) return NULL;

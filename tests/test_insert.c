@@ -314,6 +314,47 @@ void test_map_no_config_no_crash(void) {
     TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"((", 2));
 }
 
+void test_map_double_quote_no_infinite_recursion(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+    /* Add "" map whose expansion starts with its own trigger */
+    EditorConfig *cfg = calloc(1, sizeof(EditorConfig));
+    cfg->map_count = 1;
+    cfg->maps = calloc(1, sizeof(EditorMapConfig));
+    cfg->maps[0].trigger = strdup("\"\"");
+    cfg->maps[0].expansion = strdup("\"\"<Esc>ha");
+    ed->config = cfg;
+
+    /* Type "" -- should expand to "" with cursor between, NOT segfault */
+    send_char(L'"');
+    send_char(L'"');
+
+    TEST_ASSERT_EQUAL_INT(MODE_INSERT, ed->mode);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"\"\"", 2));
+    /* Cursor should be between quotes (col 1) */
+    TEST_ASSERT_EQUAL_INT(1, editor_active_pane(ed)->cursor_col);
+}
+
+void test_map_single_quote_no_infinite_recursion(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+    EditorConfig *cfg = calloc(1, sizeof(EditorConfig));
+    cfg->map_count = 1;
+    cfg->maps = calloc(1, sizeof(EditorMapConfig));
+    cfg->maps[0].trigger = strdup("''");
+    cfg->maps[0].expansion = strdup("''<Esc>ha");
+    ed->config = cfg;
+
+    send_char(L'\'');
+    send_char(L'\'');
+
+    TEST_ASSERT_EQUAL_INT(MODE_INSERT, ed->mode);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"''", 2));
+    TEST_ASSERT_EQUAL_INT(1, editor_active_pane(ed)->cursor_col);
+}
+
 void test_map_expansion_with_existing_text(void) {
     const wchar_t *lines[] = {L"hello "};
     setup_editor_with_maps(lines, 1);
@@ -349,6 +390,8 @@ int main(void) {
     RUN_TEST(test_map_bracket_expansion);
     RUN_TEST(test_map_no_match_single_paren);
     RUN_TEST(test_map_no_config_no_crash);
+    RUN_TEST(test_map_double_quote_no_infinite_recursion);
+    RUN_TEST(test_map_single_quote_no_infinite_recursion);
     RUN_TEST(test_map_expansion_with_existing_text);
     return UNITY_END();
 }

@@ -32,6 +32,7 @@ typedef struct {
 #define MAP_BUF_SIZE 16
     wchar_t map_buf[MAP_BUF_SIZE];
     int     map_buf_len;
+    bool    replaying_expansion;
 
     /* Autocomplete state (NULL when not active) */
     AutocompleteState *autocomplete;

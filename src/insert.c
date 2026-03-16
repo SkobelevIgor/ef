@@ -131,6 +131,7 @@ static int parse_expansion_token(const char *s, wchar_t *out) {
 }
 
 static void replay_expansion(Editor *ed, const char *expansion) {
+    ed->input_state->replaying_expansion = true;
     const char *p = expansion;
     while (*p) {
         wchar_t ch;
@@ -139,6 +140,7 @@ static void replay_expansion(Editor *ed, const char *expansion) {
         EditorEvent ev = {EV_KEY, (int)ch, ch, true};
         editor_handle_key(ed, &ev);
     }
+    ed->input_state->replaying_expansion = false;
 }
 
 static bool check_map_trigger(Editor *ed) {
@@ -146,6 +148,7 @@ static bool check_map_trigger(Editor *ed) {
     if (!cfg || cfg->map_count == 0) return false;
 
     InputState *is = ed->input_state;
+    if (is->replaying_expansion) return false;
     for (int i = 0; i < cfg->map_count; i++) {
         const char *trigger = cfg->maps[i].trigger;
         int tlen = (int)strlen(trigger);

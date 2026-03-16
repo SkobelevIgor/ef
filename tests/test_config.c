@@ -173,6 +173,115 @@ void test_free_null(void) {
     config_free(NULL); /* Should not crash */
 }
 
+/* --- Trailing comma tolerance -------------------------------------------- */
+
+static const char *TRAILING_COMMA_CONFIG =
+    "{"
+    "  \"file_types\": {"
+    "    \"yaml\": {"
+    "      \"extensions\": [\".yml\", \".yaml\"],"
+    "      \"syntax_highlighting\": false,"
+    "      \"tabstop\": 2,"
+    "      \"shiftwidth\": 2,"
+    "      \"autoindentation\": true,"
+    "      \"expandtab\": true,"
+    "      \"syntax_rules\": []"
+    "    },"
+    "  },"
+    "  \"maps\": {}"
+    "}";
+
+void test_load_trailing_comma_in_object(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_trailing_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "%s", TRAILING_COMMA_CONFIG);
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(1, cfg->file_type_count);
+
+    const EditorFileTypeConfig *ftc = config_get_file_type(cfg, "yaml");
+    TEST_ASSERT_NOT_NULL(ftc);
+    TEST_ASSERT_EQUAL(2, ftc->tab_stop);
+    TEST_ASSERT_EQUAL(2, ftc->shift_width);
+    TEST_ASSERT_TRUE(ftc->auto_indentation);
+    TEST_ASSERT_TRUE(ftc->expand_tab);
+
+    unlink(path);
+    config_free(cfg);
+}
+
+static const char *TRAILING_COMMA_ARRAY_CONFIG =
+    "{"
+    "  \"file_types\": {"
+    "    \"go\": {"
+    "      \"extensions\": [\".go\",],"
+    "      \"syntax_highlighting\": false,"
+    "      \"tabstop\": 4,"
+    "      \"shiftwidth\": 4,"
+    "      \"expandtab\": false,"
+    "      \"syntax_rules\": []"
+    "    }"
+    "  }"
+    "}";
+
+void test_load_trailing_comma_in_array(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_trail_arr_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "%s", TRAILING_COMMA_ARRAY_CONFIG);
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+
+    const EditorFileTypeConfig *ftc = config_get_file_type(cfg, "go");
+    TEST_ASSERT_NOT_NULL(ftc);
+    TEST_ASSERT_EQUAL(1, ftc->ext_count);
+    TEST_ASSERT_EQUAL_STRING(".go", ftc->extensions[0]);
+
+    unlink(path);
+    config_free(cfg);
+}
+
+static const char *COMMA_IN_STRING_CONFIG =
+    "{"
+    "  \"file_types\": {"
+    "    \"csv\": {"
+    "      \"extensions\": [\".csv\"],"
+    "      \"syntax_highlighting\": false,"
+    "      \"tabstop\": 4,"
+    "      \"shiftwidth\": 4,"
+    "      \"expandtab\": false,"
+    "      \"syntax_rules\": ["
+    "        {\"pattern\": \"a,}\", \"style\": {\"color\": \"red,}\"}, \"priority\": 1}"
+    "      ]"
+    "    }"
+    "  }"
+    "}";
+
+void test_load_comma_in_string_preserved(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_comma_str_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "%s", COMMA_IN_STRING_CONFIG);
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+
+    const EditorFileTypeConfig *ftc = config_get_file_type(cfg, "csv");
+    TEST_ASSERT_NOT_NULL(ftc);
+    TEST_ASSERT_EQUAL(1, ftc->rule_count);
+    TEST_ASSERT_EQUAL_STRING("a,}", ftc->syntax_rules[0].pattern);
+    TEST_ASSERT_EQUAL_STRING("red,}", ftc->syntax_rules[0].style.color);
+
+    unlink(path);
+    config_free(cfg);
+}
+
 /* --- config_ensure_default tests ----------------------------------------- */
 
 void test_ensure_default_creates_file(void) {
@@ -315,6 +424,9 @@ int main(void) {
     RUN_TEST(test_detect_null_args);
     RUN_TEST(test_get_unknown_type);
     RUN_TEST(test_free_null);
+    RUN_TEST(test_load_trailing_comma_in_object);
+    RUN_TEST(test_load_trailing_comma_in_array);
+    RUN_TEST(test_load_comma_in_string_preserved);
     RUN_TEST(test_ensure_default_creates_file);
     RUN_TEST(test_ensure_default_skips_existing);
     RUN_TEST(test_ensure_default_null_uses_home);
