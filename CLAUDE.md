@@ -1,34 +1,42 @@
-# Ways of Working
+# ef — Terminal Text Editor (C)
 
-## Not try to guess, clear understanding of requriements is top priority.
-If something from user's input is not clear, switch to planning mode and intervew user with questions before implementation.
+## Build & Run
 
-## Artifact rebuild.
-Once you finish any changes, delete old binary artifact and build new with `go build -o ef .`, then move binary to ignore directory.
+```sh
+cmake -B build && cmake --build build
+./build/ef [file]
+```
 
-## TDD approach:
+## Tests
 
-Coverage of the `editor` package should be not less then 80% (go test -cover ./editor)
-For any code changes strictly follow TDD approach:
-1. Write Test First (RED). Write a failing test that describes the expected behavior.
-2. Run Test -- Verify it FAILS.
-3. Write Minimal Implementation (GREEN). Only enough code to make the test pass.
-4. Run Test -- Verify it PASSES.
-5. Refactor (IMPROVE). Remove duplication, improve names, optimize -- tests must stay green.
-6. Verify Coverage.
+```sh
+cmake -B build && cmake --build build
+ctest --test-dir build          # all tests
+ctest --test-dir build -R test_buffer  # single test
+```
 
-### Edge Cases You MUST Test:
-- Nil input;
-- Empty arrays/strings;
-- Boundary values (min/max);
-- Special characters (Unicode, emojis, etc);
+Test framework: Unity (embedded in `tests/unity/`).
+Each test file links against `ef_core` static library + Unity via the `add_ef_test()` macro in `tests/CMakeLists.txt`.
 
-### Test Anti-Patterns to Avoid
-- Testing implementation details (internal state) instead of behavior
-- Tests depending on each other (shared state)
-- Asserting too little (passing tests that don't verify anything)
+## Project Layout
 
-## Coding guide:
-- ALWAYS follow dependency inversion principle, never pass instance or pointer of struct to function, use interface definition instead. Actively use `gomock` in testing of such dependencies. This will simplify writing of unit tests.
-- Max length of the functiion is 20 rows. If you modify existng or creating new function and rich this limit - decompose it.
+```
+src/          # Core source (.c/.h pairs)
+tests/        # One test file per module (test_<module>.c), shared helpers in test_helpers.c/.h
+deps/cjson/   # Embedded cJSON dependency
+build/        # CMake build output (gitignored)
+```
 
+## Dependencies
+
+- **ncursesw** — Homebrew on macOS (`brew install ncurses`)
+- **PCRE2** — Homebrew on macOS (`brew install pcre2`)
+- **cJSON** — embedded in `deps/cjson/`
+- **Unity** — embedded in `tests/unity/`
+
+## Coding Conventions
+
+- C11 standard, compiled with `-Wall -Wextra -Wpedantic`
+- Each module is a `.c`/`.h` pair in `src/`
+- Static library `ef_core` contains all modules; `main.c` is the entry point
+- Functions should be small (<50 lines), files focused (<800 lines)
