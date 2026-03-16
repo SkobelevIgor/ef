@@ -2,6 +2,7 @@
 #define EF_THEME_H
 
 #include "mode.h"
+#include <stdbool.h>
 
 /* Color pair indices for ncurses */
 enum {
@@ -27,8 +28,9 @@ enum {
 /* Initialize color pairs. Call after ncurses init. */
 void theme_init(void);
 
-/* Returns the ncurses color pair for the current line number based on mode. */
-int theme_current_linenum_pair(Mode m);
+/* Returns the color pair for the current-line gutter in a pane.
+   Active panes get mode-specific highlighting; inactive panes get plain. */
+int theme_gutter_current_line_pair(bool is_active, Mode m);
 
 /* Allocate/return a color pair for a syntax foreground color on default bg.
    Safe to call multiple times with the same fg — caches internally. */

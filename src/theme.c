@@ -24,12 +24,17 @@ void theme_init(void) {
     init_pair(PAIR_SEPARATOR,             8,             -1);
 }
 
-int theme_current_linenum_pair(Mode m) {
+static int theme_current_linenum_pair(Mode m) {
     switch (m) {
     case MODE_INSERT: return PAIR_INSERT_LINENUM;
     case MODE_VISUAL: return PAIR_VISUAL_LINENUM;
     default:          return PAIR_NORMAL_LINENUM;
     }
+}
+
+int theme_gutter_current_line_pair(bool is_active, Mode m) {
+    if (!is_active) return PAIR_LINE_NUM;
+    return theme_current_linenum_pair(m);
 }
 
 /* --- Dynamic syntax color pair allocation -------------------------------- */

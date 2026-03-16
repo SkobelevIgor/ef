@@ -301,8 +301,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
         int text_w = lay->width - ln_w;
         if (text_w < 1) text_w = 1;
 
-        Mode pane_mode = (i == active) ? mode : MODE_NORMAL;
-        int cur_ln_pair = theme_current_linenum_pair(pane_mode);
+        int cur_ln_pair = theme_gutter_current_line_pair(i == active, mode);
 
         pane_adjust_scroll(pane, text_w, pane_h);
 
