@@ -97,6 +97,116 @@ void test_dd_deletes_line(void) {
     send_char(L'd');
     send_char(L'd');
     TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    /* dd must NOT touch the clipboard */
+    TEST_ASSERT_EQUAL_INT(0, ed->clipboard->line_count);
+}
+
+void test_dd_preserves_existing_clipboard(void) {
+    const wchar_t *lines[] = {L"aaa", L"bbb", L"ccc"};
+    setup_editor(lines, 3);
+
+    /* Yank first line */
+    send_char(L'y');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    TEST_ASSERT_EQUAL_INT(3, ed->clipboard->line_lens[0]);
+
+    /* Delete second line — clipboard must remain unchanged */
+    editor_active_pane(ed)->cursor_row = 1;
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    TEST_ASSERT_EQUAL_INT(3, ed->clipboard->line_lens[0]);
+    TEST_ASSERT_TRUE(ed->clipboard->is_line_mode);
+}
+
+void test_x_does_not_affect_clipboard(void) {
+    const wchar_t *lines[] = {L"hello"};
+    setup_editor(lines, 1);
+
+    /* Yank line first */
+    send_char(L'y');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+
+    /* x must NOT overwrite clipboard */
+    send_char(L'x');
+    TEST_ASSERT_EQUAL_INT(4, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    TEST_ASSERT_TRUE(ed->clipboard->is_line_mode);
+}
+
+void test_dw_does_not_affect_clipboard(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+
+    /* Yank line first */
+    send_char(L'y');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    int saved_len = ed->clipboard->line_lens[0];
+
+    /* dw must NOT overwrite clipboard */
+    send_char(L'd');
+    send_char(L'w');
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    TEST_ASSERT_EQUAL_INT(saved_len, ed->clipboard->line_lens[0]);
+    TEST_ASSERT_TRUE(ed->clipboard->is_line_mode);
+}
+
+void test_db_does_not_affect_clipboard(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+    editor_active_pane(ed)->cursor_col = 8;
+
+    /* Yank line first */
+    send_char(L'y');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    int saved_len = ed->clipboard->line_lens[0];
+
+    /* db must NOT overwrite clipboard */
+    send_char(L'd');
+    send_char(L'b');
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    TEST_ASSERT_EQUAL_INT(saved_len, ed->clipboard->line_lens[0]);
+    TEST_ASSERT_TRUE(ed->clipboard->is_line_mode);
+}
+
+void test_d_dollar_does_not_affect_clipboard(void) {
+    const wchar_t *lines[] = {L"hello"};
+    setup_editor(lines, 1);
+
+    /* Yank line first */
+    send_char(L'y');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+
+    /* d$ must NOT overwrite clipboard */
+    editor_active_pane(ed)->cursor_col = 2;
+    send_char(L'd');
+    send_char(L'$');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]); /* "he" remains */
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    TEST_ASSERT_TRUE(ed->clipboard->is_line_mode);
+}
+
+void test_d_zero_does_not_affect_clipboard(void) {
+    const wchar_t *lines[] = {L"hello"};
+    setup_editor(lines, 1);
+
+    /* Yank line first */
+    send_char(L'y');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+
+    /* d0 must NOT overwrite clipboard */
+    editor_active_pane(ed)->cursor_col = 3;
+    send_char(L'd');
+    send_char(L'0');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]); /* "lo" remains */
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
     TEST_ASSERT_TRUE(ed->clipboard->is_line_mode);
 }
 
@@ -409,8 +519,14 @@ int main(void) {
     RUN_TEST(test_enter_insert_mode_a);
     RUN_TEST(test_enter_visual_mode);
     RUN_TEST(test_dd_deletes_line);
+    RUN_TEST(test_dd_preserves_existing_clipboard);
     RUN_TEST(test_yy_yanks_line);
     RUN_TEST(test_x_deletes_char);
+    RUN_TEST(test_x_does_not_affect_clipboard);
+    RUN_TEST(test_dw_does_not_affect_clipboard);
+    RUN_TEST(test_db_does_not_affect_clipboard);
+    RUN_TEST(test_d_dollar_does_not_affect_clipboard);
+    RUN_TEST(test_d_zero_does_not_affect_clipboard);
     RUN_TEST(test_undo);
     RUN_TEST(test_goto_line_colon);
     RUN_TEST(test_goto_line_colon_cr);

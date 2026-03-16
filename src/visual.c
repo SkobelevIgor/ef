@@ -134,7 +134,6 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
         int *del_lens; int del_count;
         wchar_t **deleted = buffer_delete_range(buf, sr, sc, er, ec + 1,
                                                 &del_lens, &del_count);
-        clipboard_set(ed->clipboard, deleted, del_lens, del_count, false);
         history_record_delete(ed->history, buf, sr, sc,
                               deleted, del_lens, del_count);
         buffer_free_lines(deleted, del_lens, del_count);

@@ -4,12 +4,12 @@
 #include <stdbool.h>
 #include <wchar.h>
 
-/* Clipboard stores cut/copy data. */
+/* Clipboard stores yanked (copied) data. */
 typedef struct {
     wchar_t **lines;
     int      *line_lens;
     int       line_count;
-    bool      is_line_mode; /* true = whole lines (dd/yy), false = char mode */
+    bool      is_line_mode; /* true = whole lines (yy), false = char mode */
 } Clipboard;
 
 Clipboard *clipboard_new(void);
