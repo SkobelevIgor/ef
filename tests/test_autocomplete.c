@@ -143,6 +143,37 @@ void test_find_suggestions_no_match(void) {
     TEST_ASSERT_NULL(s);
 }
 
+void test_find_suggestions_excludes_exact_match(void) {
+    /* If prefix exactly matches a word, that word should be excluded */
+    wchar_t *words[] = {(wchar_t *)L"import"};
+    int lens[] = {6};
+    int count;
+    Suggestion *s = ac_find_suggestions(words, lens, 1, L"import", 6, 10, &count);
+    TEST_ASSERT_EQUAL_INT(0, count);
+    TEST_ASSERT_NULL(s);
+}
+
+void test_find_suggestions_exact_match_keeps_others(void) {
+    /* Exact match excluded, but other longer matches survive */
+    wchar_t *words[] = {(wchar_t *)L"import", (wchar_t *)L"important"};
+    int lens[] = {6, 9};
+    int count;
+    Suggestion *s = ac_find_suggestions(words, lens, 2, L"import", 6, 10, &count);
+    TEST_ASSERT_EQUAL_INT(1, count);
+    TEST_ASSERT_EQUAL_INT(9, s[0].word_len); /* "important" only */
+    ac_free_suggestions(s, count);
+}
+
+void test_find_suggestions_case_different_not_excluded(void) {
+    /* Different casing is NOT an exact match — suggestion kept */
+    wchar_t *words[] = {(wchar_t *)L"Import"};
+    int lens[] = {6};
+    int count;
+    Suggestion *s = ac_find_suggestions(words, lens, 1, L"import", 6, 10, &count);
+    TEST_ASSERT_EQUAL_INT(1, count);
+    ac_free_suggestions(s, count);
+}
+
 void test_find_suggestions_subsequence(void) {
     wchar_t *words[] = {(wchar_t *)L"apple", (wchar_t *)L"ape"};
     int lens[] = {5, 3};
@@ -256,6 +287,9 @@ int main(void) {
     RUN_TEST(test_find_suggestions_prefix);
     RUN_TEST(test_find_suggestions_max_limit);
     RUN_TEST(test_find_suggestions_no_match);
+    RUN_TEST(test_find_suggestions_excludes_exact_match);
+    RUN_TEST(test_find_suggestions_exact_match_keeps_others);
+    RUN_TEST(test_find_suggestions_case_different_not_excluded);
     RUN_TEST(test_find_suggestions_subsequence);
     /* AutocompleteState */
     RUN_TEST(test_ac_state_new);

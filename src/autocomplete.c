@@ -170,6 +170,10 @@ Suggestion *ac_find_suggestions(wchar_t **words, const int *word_lens, int word_
     int count = 0;
 
     for (int i = 0; i < word_count; i++) {
+        /* Skip exact matches — they offer nothing to complete */
+        if (word_lens[i] == prefix_len &&
+            wmemcmp(words[i], prefix, prefix_len) == 0)
+            continue;
         if (ac_match_subsequence(words[i], word_lens[i], prefix, prefix_len)) {
             if (count >= cap) { cap *= 2; suggs = realloc(suggs, sizeof(Suggestion) * cap); }
             suggs[count].word = malloc(sizeof(wchar_t) * (word_lens[i] + 1));
