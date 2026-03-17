@@ -1,10 +1,11 @@
 #include "clipboard.h"
+#include "xalloc.h"
 #include "buffer.h"
 
 #include <stdlib.h>
 
 Clipboard *clipboard_new(void) {
-    return calloc(1, sizeof(Clipboard));
+    return xcalloc(1, sizeof(Clipboard));
 }
 
 void clipboard_free(Clipboard *cb) {

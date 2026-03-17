@@ -1,4 +1,5 @@
 #include "search.h"
+#include "xalloc.h"
 
 #include <stdlib.h>
 #include <wctype.h>
@@ -41,7 +42,7 @@ SearchMatch *buffer_find_all_matches(const Buffer *buf, const wchar_t *query,
     if (!buf || !query || query_len == 0) return NULL;
 
     int cap = 32;
-    SearchMatch *matches = malloc(sizeof(SearchMatch) * cap);
+    SearchMatch *matches = xmalloc(sizeof(SearchMatch) * cap);
     int count = 0;
 
     for (int row = 0; row < buf->line_count; row++) {
@@ -53,7 +54,7 @@ SearchMatch *buffer_find_all_matches(const Buffer *buf, const wchar_t *query,
 
             if (count >= cap) {
                 cap *= 2;
-                matches = realloc(matches, sizeof(SearchMatch) * cap);
+                matches = xrealloc(matches, sizeof(SearchMatch) * cap);
             }
             matches[count].row = row;
             matches[count].col = idx;

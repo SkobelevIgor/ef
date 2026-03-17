@@ -1,4 +1,5 @@
 #include "history.h"
+#include "xalloc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -6,8 +7,7 @@
 /* --- Change -------------------------------------------------------------- */
 
 Change *change_new(ChangeType type, Buffer *buf, int row, int col) {
-    Change *c = calloc(1, sizeof(Change));
-    if (!c) return NULL;
+    Change *c = xcalloc(1, sizeof(Change));
     c->type = type;
     c->buffer = buf;
     c->row = row;
@@ -32,8 +32,7 @@ static void clear_stack(Change **stack, int count) {
 
 History *history_new(int max_size) {
     if (max_size <= 0) max_size = DEFAULT_HISTORY_SIZE;
-    History *h = calloc(1, sizeof(History));
-    if (!h) return NULL;
+    History *h = xcalloc(1, sizeof(History));
     h->max_size = max_size;
     return h;
 }
@@ -53,7 +52,7 @@ void history_free(History *h) {
 static void stack_push(Change ***stack, int *count, int *cap, Change *c) {
     if (*count >= *cap) {
         int new_cap = (*cap == 0) ? 16 : *cap * 2;
-        *stack = realloc(*stack, sizeof(Change *) * new_cap);
+        *stack = xrealloc(*stack, sizeof(Change *) * new_cap);
         *cap = new_cap;
     }
     (*stack)[(*count)++] = c;

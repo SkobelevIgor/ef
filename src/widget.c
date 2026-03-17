@@ -1,18 +1,19 @@
 #include "widget.h"
+#include "xalloc.h"
 #include <stdlib.h>
 #include <string.h>
 
 /* --- WidgetSession ------------------------------------------------------- */
 
 WidgetSession *widget_session_new(int row, int col) {
-    WidgetSession *s = calloc(1, sizeof(WidgetSession));
+    WidgetSession *s = xcalloc(1, sizeof(WidgetSession));
     s->current_index = -1;
     s->cursor_row = row;
     s->cursor_col = col;
     s->query_cap = 64;
-    s->query = calloc(s->query_cap, sizeof(wchar_t));
+    s->query = xcalloc(s->query_cap, sizeof(wchar_t));
     s->replace_cap = 64;
-    s->replace_text = calloc(s->replace_cap, sizeof(wchar_t));
+    s->replace_text = xcalloc(s->replace_cap, sizeof(wchar_t));
     return s;
 }
 
@@ -28,7 +29,7 @@ void widget_session_append_query(WidgetSession *s, wchar_t ch) {
     if (!s) return;
     if (s->query_len + 1 >= s->query_cap) {
         s->query_cap *= 2;
-        s->query = realloc(s->query, sizeof(wchar_t) * s->query_cap);
+        s->query = xrealloc(s->query, sizeof(wchar_t) * s->query_cap);
     }
     s->query[s->query_len++] = ch;
     s->query[s->query_len] = L'\0';
@@ -44,7 +45,7 @@ void widget_session_append_replace(WidgetSession *s, wchar_t ch) {
     if (!s) return;
     if (s->replace_len + 1 >= s->replace_cap) {
         s->replace_cap *= 2;
-        s->replace_text = realloc(s->replace_text, sizeof(wchar_t) * s->replace_cap);
+        s->replace_text = xrealloc(s->replace_text, sizeof(wchar_t) * s->replace_cap);
     }
     s->replace_text[s->replace_len++] = ch;
     s->replace_text[s->replace_len] = L'\0';
@@ -59,7 +60,7 @@ void widget_session_backspace_replace(WidgetSession *s) {
 /* --- WidgetState --------------------------------------------------------- */
 
 WidgetState *widget_state_new(WidgetKind kind, int anchor_row, int anchor_col) {
-    WidgetState *w = calloc(1, sizeof(WidgetState));
+    WidgetState *w = xcalloc(1, sizeof(WidgetState));
     w->active = true;
     w->kind = kind;
     w->focus = FOCUS_FIND_BAR;

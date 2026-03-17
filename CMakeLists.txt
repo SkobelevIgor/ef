@@ -45,6 +45,7 @@ endif()
 
 # Core editor library (shared between main binary and tests)
 add_library(ef_core STATIC
+    src/xalloc.c
     src/mode.c
     src/runes.c
     src/constants.c
@@ -59,6 +60,10 @@ add_library(ef_core STATIC
     src/visual.c
     src/screen.c
     src/editor.c
+    src/editor_undo.c
+    src/editor_paste.c
+    src/editor_widget.c
+    src/editor_autocomplete.c
     src/search.c
     src/widget.c
     src/autocomplete.c

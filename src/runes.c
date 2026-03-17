@@ -1,4 +1,5 @@
 #include "runes.h"
+#include "xalloc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -54,8 +55,8 @@ bool is_word_char(wchar_t ch) {
 wchar_t *insert_runes(const wchar_t *line, int line_len, int pos,
                       const wchar_t *text, int text_len, int *out_len) {
     int new_len = line_len + text_len;
-    wchar_t *result = malloc(sizeof(wchar_t) * (new_len + 1));
-    if (!result) return NULL;
+    wchar_t *result = xmalloc(sizeof(wchar_t) * (new_len + 1));
+
     wmemcpy(result, line, pos);
     wmemcpy(result + pos, text, text_len);
     wmemcpy(result + pos + text_len, line + pos, line_len - pos);
@@ -68,8 +69,8 @@ wchar_t *remove_runes(const wchar_t *line, int line_len,
                       int start, int end, int *out_len) {
     int removed = end - start;
     int new_len = line_len - removed;
-    wchar_t *result = malloc(sizeof(wchar_t) * (new_len + 1));
-    if (!result) return NULL;
+    wchar_t *result = xmalloc(sizeof(wchar_t) * (new_len + 1));
+
     wmemcpy(result, line, start);
     wmemcpy(result + start, line + end, line_len - end);
     result[new_len] = L'\0';

@@ -1,4 +1,5 @@
 #include "config.h"
+#include "xalloc.h"
 #include "default_config.h"
 #include "cJSON.h"
 
@@ -56,9 +57,9 @@ static char *read_file_contents(const char *path) {
     if (!f) return NULL;
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
+    if (len < 0) { fclose(f); return NULL; }
     fseek(f, 0, SEEK_SET);
-    char *buf = malloc(len + 1);
-    if (!buf) { fclose(f); return NULL; }
+    char *buf = xmalloc(len + 1);
     size_t read = fread(buf, 1, len, f);
     buf[read] = '\0';
     fclose(f);
@@ -67,7 +68,7 @@ static char *read_file_contents(const char *path) {
 
 static void parse_syntax_rules(cJSON *rules_json, EditorFileTypeConfig *ftc) {
     int count = cJSON_GetArraySize(rules_json);
-    ftc->syntax_rules = calloc(count, sizeof(SyntaxRuleConfig));
+    ftc->syntax_rules = xcalloc(count, sizeof(SyntaxRuleConfig));
     ftc->rule_count = 0;
 
     for (int i = 0; i < count; i++) {
@@ -78,14 +79,14 @@ static void parse_syntax_rules(cJSON *rules_json, EditorFileTypeConfig *ftc) {
         if (!pattern || !cJSON_IsString(pattern)) continue;
 
         SyntaxRuleConfig *rc = &ftc->syntax_rules[ftc->rule_count++];
-        rc->pattern = strdup(pattern->valuestring);
+        rc->pattern = xstrdup(pattern->valuestring);
         rc->priority = priority ? priority->valueint : 0;
 
         if (style) {
             cJSON *color = cJSON_GetObjectItem(style, "color");
             cJSON *bold_j = cJSON_GetObjectItem(style, "bold");
             rc->style.color = (color && cJSON_IsString(color))
-                ? strdup(color->valuestring) : NULL;
+                ? xstrdup(color->valuestring) : NULL;
             rc->style.bold = (bold_j && cJSON_IsTrue(bold_j));
         }
     }
@@ -95,11 +96,11 @@ static void parse_file_type(cJSON *ft, EditorFileTypeConfig *ftc) {
     cJSON *exts = cJSON_GetObjectItem(ft, "extensions");
     if (exts) {
         int n = cJSON_GetArraySize(exts);
-        ftc->extensions = calloc(n, sizeof(char *));
+        ftc->extensions = xcalloc(n, sizeof(char *));
         for (int j = 0; j < n; j++) {
             cJSON *ext = cJSON_GetArrayItem(exts, j);
             if (cJSON_IsString(ext))
-                ftc->extensions[ftc->ext_count++] = strdup(ext->valuestring);
+                ftc->extensions[ftc->ext_count++] = xstrdup(ext->valuestring);
         }
     }
 
@@ -146,9 +147,9 @@ bool config_ensure_default(const char *path) {
     FILE *f = fopen(config_path, "w");
     if (!f) return false;
 
-    fwrite(default_config_data, 1, default_config_len, f);
+    size_t written = fwrite(default_config_data, 1, default_config_len, f);
     fclose(f);
-    return true;
+    return written == default_config_len;
 }
 
 EditorConfig *config_load(const char *path) {
@@ -164,18 +165,18 @@ EditorConfig *config_load(const char *path) {
     free(json_str);
     if (!root) return NULL;
 
-    EditorConfig *cfg = calloc(1, sizeof(EditorConfig));
+    EditorConfig *cfg = xcalloc(1, sizeof(EditorConfig));
 
     cJSON *file_types = cJSON_GetObjectItem(root, "file_types");
     if (file_types) {
         int count = cJSON_GetArraySize(file_types);
-        cfg->file_types = calloc(count, sizeof(EditorFileTypeConfig));
-        cfg->file_type_names = calloc(count, sizeof(char *));
+        cfg->file_types = xcalloc(count, sizeof(EditorFileTypeConfig));
+        cfg->file_type_names = xcalloc(count, sizeof(char *));
 
         cJSON *ft;
         int idx = 0;
         cJSON_ArrayForEach(ft, file_types) {
-            cfg->file_type_names[idx] = strdup(ft->string);
+            cfg->file_type_names[idx] = xstrdup(ft->string);
             parse_file_type(ft, &cfg->file_types[idx]);
             idx++;
         }
@@ -186,13 +187,13 @@ EditorConfig *config_load(const char *path) {
     if (maps && cJSON_IsObject(maps)) {
         int count = cJSON_GetArraySize(maps);
         if (count > 0) {
-            cfg->maps = calloc(count, sizeof(EditorMapConfig));
+            cfg->maps = xcalloc(count, sizeof(EditorMapConfig));
             cJSON *m;
             int idx = 0;
             cJSON_ArrayForEach(m, maps) {
                 if (cJSON_IsString(m) && m->string) {
-                    cfg->maps[idx].trigger = strdup(m->string);
-                    cfg->maps[idx].expansion = strdup(m->valuestring);
+                    cfg->maps[idx].trigger = xstrdup(m->string);
+                    cfg->maps[idx].expansion = xstrdup(m->valuestring);
                     idx++;
                 }
             }

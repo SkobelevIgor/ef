@@ -1,4 +1,5 @@
 #include "autocomplete.h"
+#include "xalloc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -57,8 +58,8 @@ wchar_t **ac_extract_words(wchar_t **lines, const int *line_lens, int line_count
                             }
                         }
                         if (!dup) {
-                            WordNode *n = malloc(sizeof(WordNode));
-                            n->word = malloc(sizeof(wchar_t) * (wlen + 1));
+                            WordNode *n = xmalloc(sizeof(WordNode));
+                            n->word = xmalloc(sizeof(wchar_t) * (wlen + 1));
                             wmemcpy(n->word, lines[row] + word_start, wlen);
                             n->word[wlen] = L'\0';
                             n->len = wlen;
@@ -75,8 +76,8 @@ wchar_t **ac_extract_words(wchar_t **lines, const int *line_lens, int line_count
         }
     }
 
-    wchar_t **words = malloc(sizeof(wchar_t *) * (total > 0 ? total : 1));
-    int *lens = malloc(sizeof(int) * (total > 0 ? total : 1));
+    wchar_t **words = xmalloc(sizeof(wchar_t *) * (total > 0 ? total : 1));
+    int *lens = xmalloc(sizeof(int) * (total > 0 ? total : 1));
     int idx = 0;
 
     for (int b = 0; b < HASH_BUCKETS; b++) {
@@ -166,7 +167,7 @@ Suggestion *ac_find_suggestions(wchar_t **words, const int *word_lens, int word_
                                 const wchar_t *prefix, int prefix_len,
                                 int max_results, int *out_count) {
     int cap = 32;
-    Suggestion *suggs = malloc(sizeof(Suggestion) * cap);
+    Suggestion *suggs = xmalloc(sizeof(Suggestion) * cap);
     int count = 0;
 
     for (int i = 0; i < word_count; i++) {
@@ -175,8 +176,8 @@ Suggestion *ac_find_suggestions(wchar_t **words, const int *word_lens, int word_
             wmemcmp(words[i], prefix, prefix_len) == 0)
             continue;
         if (ac_match_subsequence(words[i], word_lens[i], prefix, prefix_len)) {
-            if (count >= cap) { cap *= 2; suggs = realloc(suggs, sizeof(Suggestion) * cap); }
-            suggs[count].word = malloc(sizeof(wchar_t) * (word_lens[i] + 1));
+            if (count >= cap) { cap *= 2; suggs = xrealloc(suggs, sizeof(Suggestion) * cap); }
+            suggs[count].word = xmalloc(sizeof(wchar_t) * (word_lens[i] + 1));
             wmemcpy(suggs[count].word, words[i], word_lens[i]);
             suggs[count].word[word_lens[i]] = L'\0';
             suggs[count].word_len = word_lens[i];
@@ -207,7 +208,7 @@ void ac_free_suggestions(Suggestion *suggestions, int count) {
 /* --- AutocompleteState --------------------------------------------------- */
 
 AutocompleteState *ac_state_new(void) {
-    return calloc(1, sizeof(AutocompleteState));
+    return xcalloc(1, sizeof(AutocompleteState));
 }
 
 void ac_state_free(AutocompleteState *ac) {

@@ -1,4 +1,5 @@
 #include "visual.h"
+#include "xalloc.h"
 #include "editor.h"
 #include "runes.h"
 
@@ -44,19 +45,19 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
 
     wchar_t ch = ev->ch;
 
-    if (ch == 27) { /* Escape */
+    if (ch == KEY_ESC) { /* Escape */
         ed->mode = MODE_NORMAL;
         pane_clear_selection(pane);
         input_state_reset(is);
         return false;
     }
 
-    if (ch == 4) { /* Ctrl+D */
+    if (ch == CTRL_D) { /* Ctrl+D */
         ed->screen->get_size(ed->screen->impl, &width, &height);
         pane_page_down(pane, height);
         return false;
     }
-    if (ch == 21) { /* Ctrl+U */
+    if (ch == CTRL_U) { /* Ctrl+U */
         ed->screen->get_size(ed->screen->impl, &width, &height);
         pane_page_up(pane, height);
         return false;
@@ -106,8 +107,8 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
         if (sr != er) {
             /* Multi-row: yank full lines in line-mode */
             int count = er - sr + 1;
-            wchar_t **lines = malloc(sizeof(wchar_t *) * count);
-            int *lens = malloc(sizeof(int) * count);
+            wchar_t **lines = xmalloc(sizeof(wchar_t *) * count);
+            int *lens = xmalloc(sizeof(int) * count);
             for (int i = 0; i < count; i++)
                 lines[i] = buffer_copy_line(buf, sr + i, &lens[i]);
             clipboard_set(ed->clipboard, lines, lens, count, true);

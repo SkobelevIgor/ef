@@ -1,4 +1,5 @@
 #include "file_watcher.h"
+#include "xalloc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -21,7 +22,7 @@ void fw_watch(FileWatcher *fw, const char *filename) {
     if (fw_find_file(fw, filename) >= 0) return;
 
     WatchedFile *wf = &fw->files[fw->file_count];
-    wf->filename = strdup(filename);
+    wf->filename = xstrdup(filename);
 
     struct stat st;
     if (stat(filename, &st) == 0) {
@@ -76,12 +77,8 @@ static void vt_close(void *self) {
 }
 
 FileWatcherVTable *file_watcher_new(void) {
-    FileWatcher *fw = calloc(1, sizeof(FileWatcher));
-    if (!fw) return NULL;
-
-    FileWatcherVTable *vt = calloc(1, sizeof(FileWatcherVTable));
-    if (!vt) { free(fw); return NULL; }
-
+    FileWatcher *fw = xcalloc(1, sizeof(FileWatcher));
+    FileWatcherVTable *vt = xcalloc(1, sizeof(FileWatcherVTable));
     vt->watch = vt_watch;
     vt->check = vt_check;
     vt->update_mod_time = vt_update;

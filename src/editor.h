@@ -19,6 +19,7 @@
 #define MAX_PANES    16
 #define MAX_BUFFERS  64
 #define MAX_MARKS    128
+_Static_assert(MAX_MARKS >= 123, "MAX_MARKS must cover ASCII 'z' for mark indexing");
 
 typedef struct {
     bool    set;
@@ -42,6 +43,7 @@ typedef struct Editor {
     int   active_pane_idx;
 
     ScreenVTable *screen;
+    bool          owns_screen; /* true when screen is heap-allocated */
     SplitMode     split_mode;
     Mode          mode;
     InputState   *input_state;

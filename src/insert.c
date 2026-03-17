@@ -20,7 +20,7 @@ static bool handle_ac_keys(Editor *ed, EditorEvent *ev) {
 
     /* Character keys when AC active */
     if (ev->is_char) {
-        if (ev->ch == 27) { /* Escape — dismiss popup, stay in insert */
+        if (ev->ch == KEY_ESC) { /* Escape — dismiss popup, stay in insert */
             dismiss_ac(ed);
             return true;
         }
@@ -28,11 +28,11 @@ static bool handle_ac_keys(Editor *ed, EditorEvent *ev) {
             editor_accept_autocomplete(ed);
             return true;
         }
-        if (ev->ch == 14) { /* Ctrl+N */
+        if (ev->ch == CTRL_N) { /* Ctrl+N */
             ac_next(ac);
             return true;
         }
-        if (ev->ch == 16) { /* Ctrl+P */
+        if (ev->ch == CTRL_P) { /* Ctrl+P */
             ac_prev(ac);
             return true;
         }
@@ -183,7 +183,7 @@ static void handle_char_keys(Editor *ed, wchar_t ch) {
     Buffer *buf = pane->buffer;
     int height = 0, width = 0;
 
-    if (ch == 27) { /* Escape */
+    if (ch == KEY_ESC) { /* Escape */
         dismiss_ac(ed);
         ed->mode = MODE_NORMAL;
         history_commit_session(ed->history, buf->lines,
@@ -193,7 +193,7 @@ static void handle_char_keys(Editor *ed, wchar_t ch) {
         return;
     }
 
-    if (ch == 127 || ch == 8) { /* Backspace */
+    if (ch == KEY_DEL || ch == KEY_BS) { /* Backspace */
         buffer_delete_char(buf, pane->cursor_row, pane->cursor_col,
                            &pane->cursor_row, &pane->cursor_col);
         editor_schedule_auto_save(ed);
@@ -217,14 +217,14 @@ static void handle_char_keys(Editor *ed, wchar_t ch) {
         return;
     }
 
-    if (ch == 4) { /* Ctrl+D */
+    if (ch == CTRL_D) { /* Ctrl+D */
         dismiss_ac(ed);
         ed->screen->get_size(ed->screen->impl, &width, &height);
         pane_page_down(pane, height);
         return;
     }
 
-    if (ch == 21) { /* Ctrl+U */
+    if (ch == CTRL_U) { /* Ctrl+U */
         dismiss_ac(ed);
         ed->screen->get_size(ed->screen->impl, &width, &height);
         pane_page_up(pane, height);
@@ -248,7 +248,7 @@ static void handle_paste_char(Editor *ed, wchar_t ch) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
 
-    if (ch == 27) return; /* Ignore Escape during paste */
+    if (ch == KEY_ESC) return; /* Ignore Escape during paste */
 
     if (ch == L'\n' || ch == L'\r') {
         buffer_insert_newline(buf, pane->cursor_row, pane->cursor_col,

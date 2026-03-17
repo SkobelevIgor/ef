@@ -2,6 +2,7 @@
 #include <pcre2.h>
 
 #include "syntax.h"
+#include "xalloc.h"
 
 #include <ncurses.h>
 #include <stdlib.h>
@@ -34,8 +35,8 @@ short syntax_parse_color(const char *name) {
 static char *wcs_to_utf8_mapped(const wchar_t *line, int line_len,
                                  int *out_byte_len, int **out_b2c) {
     int max_bytes = line_len * 4 + 1;
-    char *utf8 = malloc(max_bytes);
-    int *b2c = malloc((max_bytes + 1) * sizeof(int));
+    char *utf8 = xmalloc(max_bytes);
+    int *b2c = xmalloc((max_bytes + 1) * sizeof(int));
     int pos = 0;
 
     for (int i = 0; i < line_len; i++) {
@@ -83,8 +84,8 @@ struct SyntaxHighlighter {
 
 SyntaxHighlighter *syntax_highlighter_new(const SyntaxRuleConfig *rules,
                                            int rule_count) {
-    SyntaxHighlighter *h = calloc(1, sizeof(SyntaxHighlighter));
-    h->rules = calloc(rule_count, sizeof(CompiledRule));
+    SyntaxHighlighter *h = xcalloc(1, sizeof(SyntaxHighlighter));
+    h->rules = xcalloc(rule_count, sizeof(CompiledRule));
 
     for (int i = 0; i < rule_count; i++) {
         int errorcode;
@@ -127,8 +128,8 @@ SyntaxToken *syntax_highlight_line(SyntaxHighlighter *h,
     int *b2c;
     char *utf8 = wcs_to_utf8_mapped(line, line_len, &byte_len, &b2c);
 
-    int *rule_indices = malloc(line_len * sizeof(int));
-    int *priorities = calloc(line_len, sizeof(int));
+    int *rule_indices = xmalloc(line_len * sizeof(int));
+    int *priorities = xcalloc(line_len, sizeof(int));
     for (int i = 0; i < line_len; i++) rule_indices[i] = -1;
 
     pcre2_match_data *md = pcre2_match_data_create(16, NULL);
@@ -173,7 +174,7 @@ SyntaxToken *syntax_highlight_line(SyntaxHighlighter *h,
             if (current_rule >= 0) {
                 if (count >= cap) {
                     cap = cap == 0 ? 16 : cap * 2;
-                    tokens = realloc(tokens, cap * sizeof(SyntaxToken));
+                    tokens = xrealloc(tokens, cap * sizeof(SyntaxToken));
                 }
                 tokens[count++] = (SyntaxToken){
                     start, i,
@@ -225,7 +226,7 @@ static uint64_t hash_line(const wchar_t *line, int len) {
 }
 
 HighlightCache *highlight_cache_new(SyntaxHighlighter *h) {
-    HighlightCache *c = calloc(1, sizeof(HighlightCache));
+    HighlightCache *c = xcalloc(1, sizeof(HighlightCache));
     c->highlighter = h;
     return c;
 }
@@ -243,7 +244,7 @@ static void cache_ensure(HighlightCache *c, int idx) {
     if (idx < c->capacity) return;
     int new_cap = c->capacity == 0 ? 256 : c->capacity;
     while (new_cap <= idx) new_cap *= 2;
-    c->lines = realloc(c->lines, new_cap * sizeof(CachedLine));
+    c->lines = xrealloc(c->lines, new_cap * sizeof(CachedLine));
     memset(c->lines + c->capacity, 0,
            (new_cap - c->capacity) * sizeof(CachedLine));
     c->capacity = new_cap;

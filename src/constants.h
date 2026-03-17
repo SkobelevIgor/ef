@@ -15,4 +15,14 @@
 #define DEFAULT_TAB_STOP      4
 #define DEFAULT_HISTORY_SIZE  100
 
+/* Control key codes */
+#define CTRL_D    4
+#define CTRL_N   14
+#define CTRL_P   16
+#define CTRL_R   18
+#define CTRL_U   21
+#define KEY_ESC  27
+#define KEY_BS    8
+#define KEY_DEL 127
+
 #endif /* EF_CONSTANTS_H */

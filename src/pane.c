@@ -1,19 +1,19 @@
 #include "pane.h"
+#include "xalloc.h"
 #include "widget.h"
 #include "runes.h"
 
 #include <stdlib.h>
 
 Pane *pane_new(Buffer *buf) {
-    Pane *p = calloc(1, sizeof(Pane));
-    if (!p) return NULL;
+    Pane *p = xcalloc(1, sizeof(Pane));
     p->buffer = buf;
     return p;
 }
 
 Pane *pane_new_at_line(Buffer *buf, int line) {
     Pane *p = pane_new(buf);
-    if (p && line > 0) pane_goto_line(p, line);
+    if (line > 0) pane_goto_line(p, line);
     return p;
 }
 

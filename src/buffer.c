@@ -1,4 +1,5 @@
 #include "buffer.h"
+#include "xalloc.h"
 #include "syntax.h"
 #include "runes.h"
 
@@ -10,12 +11,10 @@
 
 /* --- Internal helpers ---------------------------------------------------- */
 
-static wchar_t *wcsdup_safe(const wchar_t *src, int len) {
-    wchar_t *dst = malloc(sizeof(wchar_t) * (len + 1));
-    if (!dst) return NULL;
-    wmemcpy(dst, src, len);
-    dst[len] = L'\0';
-    return dst;
+static void buffer_shift_arrays(Buffer *buf, int dst, int src, int count) {
+    memmove(buf->lines + dst, buf->lines + src, sizeof(wchar_t *) * count);
+    memmove(buf->line_lens + dst, buf->line_lens + src, sizeof(int) * count);
+    memmove(buf->line_caps + dst, buf->line_caps + src, sizeof(int) * count);
 }
 
 static void get_leading_whitespace(const wchar_t *line, int len,
@@ -24,19 +23,18 @@ static void get_leading_whitespace(const wchar_t *line, int len,
     while (i < len && is_whitespace(line[i])) i++;
     *out_len = i;
     if (i == 0) { *out = NULL; return; }
-    *out = wcsdup_safe(line, i);
+    *out = xwcsdup(line, i);
 }
 
 /* --- Lifecycle ----------------------------------------------------------- */
 
 Buffer *buffer_new(void) {
-    Buffer *buf = calloc(1, sizeof(Buffer));
-    if (!buf) return NULL;
+    Buffer *buf = xcalloc(1, sizeof(Buffer));
     buf->config.tab_stop = DEFAULT_TAB_STOP;
     buf->config.shift_width = DEFAULT_TAB_STOP;
     /* Start with one empty line */
     buffer_ensure_lines(buf, 1);
-    buf->lines[0] = wcsdup_safe(L"", 0);
+    buf->lines[0] = xwcsdup(L"", 0);
     buf->line_lens[0] = 0;
     buf->line_caps[0] = 1;
     buf->line_count = 1;
@@ -45,8 +43,7 @@ Buffer *buffer_new(void) {
 
 Buffer *buffer_new_from_file(const char *filename) {
     Buffer *buf = buffer_new();
-    if (!buf) return NULL;
-    buf->filename = strdup(filename);
+    buf->filename = xstrdup(filename);
     struct stat st;
     if (stat(filename, &st) == 0) {
         if (buffer_load(buf) != 0) {
@@ -77,9 +74,9 @@ void buffer_ensure_lines(Buffer *buf, int n) {
     if (n <= buf->line_alloc) return;
     int new_alloc = buf->line_alloc == 0 ? 16 : buf->line_alloc;
     while (new_alloc < n) new_alloc *= 2;
-    buf->lines = realloc(buf->lines, sizeof(wchar_t *) * new_alloc);
-    buf->line_lens = realloc(buf->line_lens, sizeof(int) * new_alloc);
-    buf->line_caps = realloc(buf->line_caps, sizeof(int) * new_alloc);
+    buf->lines = xrealloc(buf->lines, sizeof(wchar_t *) * new_alloc);
+    buf->line_lens = xrealloc(buf->line_lens, sizeof(int) * new_alloc);
+    buf->line_caps = xrealloc(buf->line_caps, sizeof(int) * new_alloc);
     for (int i = buf->line_alloc; i < new_alloc; i++) {
         buf->lines[i] = NULL;
         buf->line_lens[i] = 0;
@@ -125,15 +122,7 @@ void buffer_splice_lines(Buffer *buf, int start, int delete_count,
     int tail_start = start + delete_count;
     int tail_count = buf->line_count - tail_start;
     if (tail_count > 0) {
-        memmove(buf->lines + start + insert_count,
-                buf->lines + tail_start,
-                sizeof(wchar_t *) * tail_count);
-        memmove(buf->line_lens + start + insert_count,
-                buf->line_lens + tail_start,
-                sizeof(int) * tail_count);
-        memmove(buf->line_caps + start + insert_count,
-                buf->line_caps + tail_start,
-                sizeof(int) * tail_count);
+        buffer_shift_arrays(buf, start + insert_count, tail_start, tail_count);
     }
 
     /* Insert new lines */
@@ -172,7 +161,7 @@ int buffer_load(Buffer *buf) {
         /* Convert to wide chars */
         size_t wlen = mbstowcs(NULL, mb_buf, 0);
         if (wlen == (size_t)-1) wlen = 0;
-        wchar_t *wline = malloc(sizeof(wchar_t) * (wlen + 1));
+        wchar_t *wline = xmalloc(sizeof(wchar_t) * (wlen + 1));
         if (wlen > 0) {
             mbstowcs(wline, mb_buf, wlen + 1);
         }
@@ -185,11 +174,12 @@ int buffer_load(Buffer *buf) {
         buf->line_count++;
     }
 
+    if (ferror(f)) { fclose(f); return -1; }
     fclose(f);
 
     if (buf->line_count == 0) {
         buffer_ensure_lines(buf, 1);
-        buf->lines[0] = wcsdup_safe(L"", 0);
+        buf->lines[0] = xwcsdup(L"", 0);
         buf->line_lens[0] = 0;
         buf->line_caps[0] = 1;
         buf->line_count = 1;
@@ -214,9 +204,9 @@ int buffer_save(Buffer *buf) {
         size_t n = wcstombs(mb_buf, buf->lines[i], sizeof(mb_buf) - 1);
         if (n == (size_t)-1) n = 0;
         mb_buf[n] = '\0';
-        fputs(mb_buf, f);
+        if (fputs(mb_buf, f) == EOF) { fclose(f); return -1; }
         if (i < buf->line_count - 1) {
-            fputc('\n', f);
+            if (fputc('\n', f) == EOF) { fclose(f); return -1; }
         }
     }
 
@@ -259,19 +249,14 @@ void buffer_delete_char(Buffer *buf, int row, int col,
         int prev_len = buf->line_lens[row - 1];
         int curr_len = buf->line_lens[row];
         int merged_len = prev_len + curr_len;
-        wchar_t *merged = malloc(sizeof(wchar_t) * (merged_len + 1));
+        wchar_t *merged = xmalloc(sizeof(wchar_t) * (merged_len + 1));
         wmemcpy(merged, buf->lines[row - 1], prev_len);
         wmemcpy(merged + prev_len, buf->lines[row], curr_len);
         merged[merged_len] = L'\0';
         buffer_set_line(buf, row - 1, merged, merged_len);
         /* Remove current line */
         free(buf->lines[row]);
-        memmove(buf->lines + row, buf->lines + row + 1,
-                sizeof(wchar_t *) * (buf->line_count - row - 1));
-        memmove(buf->line_lens + row, buf->line_lens + row + 1,
-                sizeof(int) * (buf->line_count - row - 1));
-        memmove(buf->line_caps + row, buf->line_caps + row + 1,
-                sizeof(int) * (buf->line_count - row - 1));
+        buffer_shift_arrays(buf, row, row + 1, buf->line_count - row - 1);
         buf->line_count--;
         buf->modified = true;
         buf->mod_count++;
@@ -296,19 +281,14 @@ void buffer_delete_char_forward(Buffer *buf, int row, int col) {
         int curr_len = buf->line_lens[row];
         int next_len = buf->line_lens[row + 1];
         int merged_len = curr_len + next_len;
-        wchar_t *merged = malloc(sizeof(wchar_t) * (merged_len + 1));
+        wchar_t *merged = xmalloc(sizeof(wchar_t) * (merged_len + 1));
         wmemcpy(merged, buf->lines[row], curr_len);
         wmemcpy(merged + curr_len, buf->lines[row + 1], next_len);
         merged[merged_len] = L'\0';
         buffer_set_line(buf, row, merged, merged_len);
         /* Remove next line */
         free(buf->lines[row + 1]);
-        memmove(buf->lines + row + 1, buf->lines + row + 2,
-                sizeof(wchar_t *) * (buf->line_count - row - 2));
-        memmove(buf->line_lens + row + 1, buf->line_lens + row + 2,
-                sizeof(int) * (buf->line_count - row - 2));
-        memmove(buf->line_caps + row + 1, buf->line_caps + row + 2,
-                sizeof(int) * (buf->line_count - row - 2));
+        buffer_shift_arrays(buf, row + 1, row + 2, buf->line_count - row - 2);
         buf->line_count--;
         buf->modified = true;
         buf->mod_count++;
@@ -332,9 +312,9 @@ void buffer_insert_newline(Buffer *buf, int row, int col,
     wchar_t *line = buf->lines[row];
     int line_len = buf->line_lens[row];
 
-    wchar_t *left = wcsdup_safe(line, col);
+    wchar_t *left = xwcsdup(line, col);
     int right_len = line_len - col;
-    wchar_t *right = wcsdup_safe(line + col, right_len);
+    wchar_t *right = xwcsdup(line + col, right_len);
 
     buffer_set_line(buf, row, left, col);
 
@@ -362,7 +342,7 @@ void buffer_insert_newline_with_indent(Buffer *buf, int row, int col,
         wchar_t *new_line_content = buf->lines[*new_row];
         int new_line_len = buf->line_lens[*new_row];
         int total = indent_len + new_line_len;
-        wchar_t *indented = malloc(sizeof(wchar_t) * (total + 1));
+        wchar_t *indented = xmalloc(sizeof(wchar_t) * (total + 1));
         wmemcpy(indented, indent, indent_len);
         wmemcpy(indented + indent_len, new_line_content, new_line_len);
         indented[total] = L'\0';
@@ -399,10 +379,10 @@ void buffer_open_line_below(Buffer *buf, int row,
 
     wchar_t *new_line;
     if (indent_len > 0 && indent) {
-        new_line = wcsdup_safe(indent, indent_len);
+        new_line = xwcsdup(indent, indent_len);
         free(indent);
     } else {
-        new_line = wcsdup_safe(L"", 0);
+        new_line = xwcsdup(L"", 0);
         indent_len = 0;
     }
 
@@ -422,10 +402,10 @@ void buffer_open_line_above(Buffer *buf, int row,
 
     wchar_t *new_line;
     if (indent_len > 0 && indent) {
-        new_line = wcsdup_safe(indent, indent_len);
+        new_line = xwcsdup(indent, indent_len);
         free(indent);
     } else {
-        new_line = wcsdup_safe(L"", 0);
+        new_line = xwcsdup(L"", 0);
         indent_len = 0;
     }
 
@@ -440,22 +420,17 @@ wchar_t *buffer_delete_line(Buffer *buf, int row, int *deleted_len) {
         return NULL;
     }
 
-    wchar_t *deleted = wcsdup_safe(buf->lines[row], buf->line_lens[row]);
+    wchar_t *deleted = xwcsdup(buf->lines[row], buf->line_lens[row]);
     if (deleted_len) *deleted_len = buf->line_lens[row];
 
     if (buf->line_count == 1) {
         free(buf->lines[0]);
-        buf->lines[0] = wcsdup_safe(L"", 0);
+        buf->lines[0] = xwcsdup(L"", 0);
         buf->line_lens[0] = 0;
         buf->line_caps[0] = 1;
     } else {
         free(buf->lines[row]);
-        memmove(buf->lines + row, buf->lines + row + 1,
-                sizeof(wchar_t *) * (buf->line_count - row - 1));
-        memmove(buf->line_lens + row, buf->line_lens + row + 1,
-                sizeof(int) * (buf->line_count - row - 1));
-        memmove(buf->line_caps + row, buf->line_caps + row + 1,
-                sizeof(int) * (buf->line_count - row - 1));
+        buffer_shift_arrays(buf, row, row + 1, buf->line_count - row - 1);
         buf->line_count--;
     }
 
@@ -470,7 +445,7 @@ wchar_t *buffer_copy_line(Buffer *buf, int row, int *copy_len) {
         return NULL;
     }
     if (copy_len) *copy_len = buf->line_lens[row];
-    return wcsdup_safe(buf->lines[row], buf->line_lens[row]);
+    return xwcsdup(buf->lines[row], buf->line_lens[row]);
 }
 
 void buffer_insert_line_after(Buffer *buf, int row, wchar_t *line, int line_len) {
@@ -491,22 +466,24 @@ void buffer_insert_line_before(Buffer *buf, int row, wchar_t *line, int line_len
 
 /* --- Range operations ---------------------------------------------------- */
 
+static void clamp_range(const Buffer *buf, int *sr, int *sc, int *er, int *ec) {
+    if (*sr < 0) *sr = 0;
+    if (*er >= buf->line_count) *er = buf->line_count - 1;
+    if (*sc < 0) *sc = 0;
+    if (*sc > buf->line_lens[*sr]) *sc = buf->line_lens[*sr];
+    if (*ec > buf->line_lens[*er]) *ec = buf->line_lens[*er];
+}
+
 wchar_t **buffer_delete_range(Buffer *buf,
                               int sr, int sc, int er, int ec,
                               int **deleted_lens, int *deleted_count) {
     normalize_range(&sr, &sc, &er, &ec);
-
-    /* Clamp */
-    if (sr < 0) sr = 0;
-    if (er >= buf->line_count) er = buf->line_count - 1;
-    if (sc < 0) sc = 0;
-    if (sc > buf->line_lens[sr]) sc = buf->line_lens[sr];
-    if (ec > buf->line_lens[er]) ec = buf->line_lens[er];
+    clamp_range(buf, &sr, &sc, &er, &ec);
 
     /* Same line */
     if (sr == er) {
         int del_len = ec - sc;
-        wchar_t *del = wcsdup_safe(buf->lines[sr] + sc, del_len);
+        wchar_t *del = xwcsdup(buf->lines[sr] + sc, del_len);
         int new_len;
         wchar_t *new_line = remove_runes(buf->lines[sr], buf->line_lens[sr],
                                          sc, ec, &new_len);
@@ -515,36 +492,36 @@ wchar_t **buffer_delete_range(Buffer *buf,
         buf->mod_count++;
 
         *deleted_count = 1;
-        wchar_t **result = malloc(sizeof(wchar_t *));
+        wchar_t **result = xmalloc(sizeof(wchar_t *));
         result[0] = del;
-        *deleted_lens = malloc(sizeof(int));
+        *deleted_lens = xmalloc(sizeof(int));
         (*deleted_lens)[0] = del_len;
         return result;
     }
 
     /* Multi-line */
     int count = er - sr + 1;
-    wchar_t **deleted = malloc(sizeof(wchar_t *) * count);
-    int *dlens = malloc(sizeof(int) * count);
+    wchar_t **deleted = xmalloc(sizeof(wchar_t *) * count);
+    int *dlens = xmalloc(sizeof(int) * count);
 
     /* First line: from sc to end */
     int first_del = buf->line_lens[sr] - sc;
-    deleted[0] = wcsdup_safe(buf->lines[sr] + sc, first_del);
+    deleted[0] = xwcsdup(buf->lines[sr] + sc, first_del);
     dlens[0] = first_del;
 
     /* Middle lines */
     for (int i = sr + 1; i < er; i++) {
-        deleted[i - sr] = wcsdup_safe(buf->lines[i], buf->line_lens[i]);
+        deleted[i - sr] = xwcsdup(buf->lines[i], buf->line_lens[i]);
         dlens[i - sr] = buf->line_lens[i];
     }
 
     /* Last line: from start to ec */
-    deleted[count - 1] = wcsdup_safe(buf->lines[er], ec);
+    deleted[count - 1] = xwcsdup(buf->lines[er], ec);
     dlens[count - 1] = ec;
 
     /* Build merged line */
     int merged_len = sc + buf->line_lens[er] - ec;
-    wchar_t *merged = malloc(sizeof(wchar_t) * (merged_len + 1));
+    wchar_t *merged = xmalloc(sizeof(wchar_t) * (merged_len + 1));
     wmemcpy(merged, buf->lines[sr], sc);
     wmemcpy(merged + sc, buf->lines[er] + ec, buf->line_lens[er] - ec);
     merged[merged_len] = L'\0';
@@ -562,11 +539,8 @@ wchar_t **buffer_get_range(Buffer *buf,
                            int sr, int sc, int er, int ec,
                            int **result_lens, int *result_count) {
     normalize_range(&sr, &sc, &er, &ec);
-
-    if (sr < 0) sr = 0;
-    if (er >= buf->line_count) er = buf->line_count - 1;
-    if (sc < 0) sc = 0;
-    if (sc > buf->line_lens[sr]) sc = buf->line_lens[sr];
+    clamp_range(buf, &sr, &sc, &er, &ec);
+    /* get_range uses inclusive ec, clamp one further */
     int ll = buf->line_lens[er];
     if (ec >= ll) ec = ll - 1;
 
@@ -574,44 +548,44 @@ wchar_t **buffer_get_range(Buffer *buf,
     if (sr == er) {
         if (sc > ec || ec < 0) {
             *result_count = 1;
-            wchar_t **r = malloc(sizeof(wchar_t *));
-            r[0] = wcsdup_safe(L"", 0);
-            *result_lens = malloc(sizeof(int));
+            wchar_t **r = xmalloc(sizeof(wchar_t *));
+            r[0] = xwcsdup(L"", 0);
+            *result_lens = xmalloc(sizeof(int));
             (*result_lens)[0] = 0;
             return r;
         }
         int len = ec - sc + 1;
         *result_count = 1;
-        wchar_t **r = malloc(sizeof(wchar_t *));
-        r[0] = wcsdup_safe(buf->lines[sr] + sc, len);
-        *result_lens = malloc(sizeof(int));
+        wchar_t **r = xmalloc(sizeof(wchar_t *));
+        r[0] = xwcsdup(buf->lines[sr] + sc, len);
+        *result_lens = xmalloc(sizeof(int));
         (*result_lens)[0] = len;
         return r;
     }
 
     /* Multi-line */
     int count = er - sr + 1;
-    wchar_t **result = malloc(sizeof(wchar_t *) * count);
-    int *rlens = malloc(sizeof(int) * count);
+    wchar_t **result = xmalloc(sizeof(wchar_t *) * count);
+    int *rlens = xmalloc(sizeof(int) * count);
 
     /* First line: from sc to end */
     int first_len = buf->line_lens[sr] - sc;
-    result[0] = wcsdup_safe(buf->lines[sr] + sc, first_len);
+    result[0] = xwcsdup(buf->lines[sr] + sc, first_len);
     rlens[0] = first_len;
 
     /* Middle lines */
     for (int i = sr + 1; i < er; i++) {
-        result[i - sr] = wcsdup_safe(buf->lines[i], buf->line_lens[i]);
+        result[i - sr] = xwcsdup(buf->lines[i], buf->line_lens[i]);
         rlens[i - sr] = buf->line_lens[i];
     }
 
     /* Last line: from start to ec (inclusive) */
     if (ec >= 0 && ec < buf->line_lens[er]) {
         int last_len = ec + 1;
-        result[count - 1] = wcsdup_safe(buf->lines[er], last_len);
+        result[count - 1] = xwcsdup(buf->lines[er], last_len);
         rlens[count - 1] = last_len;
     } else {
-        result[count - 1] = wcsdup_safe(L"", 0);
+        result[count - 1] = xwcsdup(L"", 0);
         rlens[count - 1] = 0;
     }
 
@@ -631,7 +605,7 @@ void buffer_indent_range(Buffer *buf, int start_row, int end_row) {
         if (buf->config.expand_tab) {
             int sw = buffer_get_shift_width(buf);
             int new_len = sw + buf->line_lens[row];
-            wchar_t *nl = malloc(sizeof(wchar_t) * (new_len + 1));
+            wchar_t *nl = xmalloc(sizeof(wchar_t) * (new_len + 1));
             for (int i = 0; i < sw; i++) nl[i] = L' ';
             wmemcpy(nl + sw, buf->lines[row], buf->line_lens[row]);
             nl[new_len] = L'\0';
@@ -701,7 +675,7 @@ void buffer_reindent_range(Buffer *buf, int start_row, int end_row) {
         }
         int content_len = buf->line_lens[row] - stripped_start;
         int new_len = prev_indent_len + content_len;
-        wchar_t *nl = malloc(sizeof(wchar_t) * (new_len + 1));
+        wchar_t *nl = xmalloc(sizeof(wchar_t) * (new_len + 1));
         if (prev_indent_len > 0 && prev_indent) {
             wmemcpy(nl, prev_indent, prev_indent_len);
         }
@@ -747,10 +721,10 @@ wchar_t **buffer_copy_lines(wchar_t **lines, const int *lens, int count,
         if (out_lens) *out_lens = NULL;
         return NULL;
     }
-    wchar_t **result = malloc(sizeof(wchar_t *) * count);
-    int *rlens = malloc(sizeof(int) * count);
+    wchar_t **result = xmalloc(sizeof(wchar_t *) * count);
+    int *rlens = xmalloc(sizeof(int) * count);
     for (int i = 0; i < count; i++) {
-        result[i] = wcsdup_safe(lines[i], lens[i]);
+        result[i] = xwcsdup(lines[i], lens[i]);
         rlens[i] = lens[i];
     }
     if (out_lens) *out_lens = rlens;

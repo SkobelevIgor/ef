@@ -1,4 +1,5 @@
 #include "screen.h"
+#include "xalloc.h"
 #include "theme.h"
 #include "runes.h"
 #include "syntax.h"
@@ -41,7 +42,7 @@ PaneLayout *calculate_pane_layout_horizontal(int num_panes, int width,
         rem = avail % visible;
     }
 
-    PaneLayout *layouts = malloc(sizeof(PaneLayout) * visible);
+    PaneLayout *layouts = xmalloc(sizeof(PaneLayout) * visible);
     int cur_y = start_y;
     for (int i = 0; i < visible; i++) {
         int h = base_h + (i >= visible - rem ? 1 : 0);
@@ -71,7 +72,7 @@ PaneLayout *calculate_pane_layout_vertical(int num_panes, int width,
         rem = avail % visible;
     }
 
-    PaneLayout *layouts = malloc(sizeof(PaneLayout) * visible);
+    PaneLayout *layouts = xmalloc(sizeof(PaneLayout) * visible);
     int cur_x = 0;
     for (int i = 0; i < visible; i++) {
         int w = base_w + (i >= visible - rem ? 1 : 0);
@@ -598,8 +599,8 @@ ScreenVTable *ncurses_screen_new(void) {
     define_key("\033[200~", KEY_PASTE_START);
     define_key("\033[201~", KEY_PASTE_END);
 
-    NcursesScreen *ns = calloc(1, sizeof(NcursesScreen));
-    ScreenVTable *vt = calloc(1, sizeof(ScreenVTable));
+    NcursesScreen *ns = xcalloc(1, sizeof(NcursesScreen));
+    ScreenVTable *vt = xcalloc(1, sizeof(ScreenVTable));
     vt->render = ncurses_render;
     vt->poll_event = ncurses_poll_event;
     vt->get_size = ncurses_get_size;

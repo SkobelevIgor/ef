@@ -1,4 +1,5 @@
 #include "config.h"
+#include "xalloc.h"
 #include "editor.h"
 
 #include <stdio.h>
@@ -10,26 +11,26 @@ static void parse_file_arg(const char *arg, char **filename, int *line) {
     *line = 0;
     const char *colon = strrchr(arg, ':');
     if (!colon || colon == arg) {
-        *filename = strdup(arg);
+        *filename = xstrdup(arg);
         return;
     }
     /* Check if everything after colon is a number */
     const char *p = colon + 1;
     while (*p) {
         if (*p < '0' || *p > '9') {
-            *filename = strdup(arg);
+            *filename = xstrdup(arg);
             return;
         }
         p++;
     }
     int ln = atoi(colon + 1);
     if (ln < 1) {
-        *filename = strdup(arg);
+        *filename = xstrdup(arg);
         return;
     }
     *line = ln;
     size_t name_len = (size_t)(colon - arg);
-    *filename = malloc(name_len + 1);
+    *filename = xmalloc(name_len + 1);
     memcpy(*filename, arg, name_len);
     (*filename)[name_len] = '\0';
 }
@@ -52,7 +53,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    FileInfo *files = malloc(sizeof(FileInfo) * nargs);
+    FileInfo *files = xmalloc(sizeof(FileInfo) * nargs);
     for (int i = 0; i < nargs; i++) {
         parse_file_arg(args[i], &files[i].filename, &files[i].line);
     }

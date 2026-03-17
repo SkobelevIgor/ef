@@ -1,4 +1,5 @@
 #include "normal.h"
+#include "xalloc.h"
 #include "editor.h"
 #include "runes.h"
 
@@ -39,7 +40,7 @@ bool handle_normal_mode(Editor *ed, EditorEvent *ev) {
     /* Special keys */
     if (!ev->is_char) {
         switch (ev->key) {
-        case 27: /* Escape */
+        case KEY_ESC: /* Escape */
             input_state_reset(is);
             return false;
         case KEY_UP:
@@ -74,22 +75,22 @@ bool handle_normal_mode(Editor *ed, EditorEvent *ev) {
     wchar_t ch = ev->ch;
 
     /* Ctrl keys as low chars */
-    if (ch == 4) { /* Ctrl+D */
+    if (ch == CTRL_D) { /* Ctrl+D */
         pane_page_down(pane, height);
         input_state_reset(is);
         return false;
     }
-    if (ch == 21) { /* Ctrl+U */
+    if (ch == CTRL_U) { /* Ctrl+U */
         pane_page_up(pane, height);
         input_state_reset(is);
         return false;
     }
-    if (ch == 18) { /* Ctrl+R */
+    if (ch == CTRL_R) { /* Ctrl+R */
         editor_redo(ed);
         input_state_reset(is);
         return false;
     }
-    if (ch == 27) { /* Escape */
+    if (ch == KEY_ESC) { /* Escape */
         input_state_reset(is);
         return false;
     }
@@ -230,7 +231,7 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
     /* Delete char under cursor */
     case L'x': {
         int start_col = pane->cursor_col;
-        wchar_t *deleted_chars = malloc(sizeof(wchar_t) * count);
+        wchar_t *deleted_chars = xmalloc(sizeof(wchar_t) * count);
         int del_count = 0;
         for (int i = 0; i < count; i++) {
             if (pane->cursor_col < buf->line_lens[pane->cursor_row]) {
@@ -282,8 +283,8 @@ static void handle_op_dd(Editor *ed, int count) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
     int start_row = pane->cursor_row;
-    wchar_t **deleted = malloc(sizeof(wchar_t *) * count);
-    int *del_lens = malloc(sizeof(int) * count);
+    wchar_t **deleted = xmalloc(sizeof(wchar_t *) * count);
+    int *del_lens = xmalloc(sizeof(int) * count);
     int actual = 0;
     for (int i = 0; i < count && pane->cursor_row < buf->line_count; i++) {
         deleted[i] = buffer_delete_line(buf, pane->cursor_row, &del_lens[i]);
@@ -301,8 +302,8 @@ static void handle_op_dd(Editor *ed, int count) {
 static void handle_op_yy(Editor *ed, int count) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
-    wchar_t **yanked = malloc(sizeof(wchar_t *) * count);
-    int *yank_lens = malloc(sizeof(int) * count);
+    wchar_t **yanked = xmalloc(sizeof(wchar_t *) * count);
+    int *yank_lens = xmalloc(sizeof(int) * count);
     int actual = 0;
     for (int i = 0; i < count
              && pane->cursor_row + i < buf->line_count; i++) {
@@ -351,7 +352,7 @@ static void normal_delete_to_col(Editor *ed, int from, int to) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
     int del_len = to - from;
-    wchar_t *del = malloc(sizeof(wchar_t) * (del_len + 1));
+    wchar_t *del = xmalloc(sizeof(wchar_t) * (del_len + 1));
     wmemcpy(del, buf->lines[pane->cursor_row] + from, del_len);
     del[del_len] = L'\0';
     int new_len;
@@ -403,7 +404,7 @@ static bool is_valid_mark_id(wchar_t ch) {
 static bool handle_mark_input(Editor *ed, EditorEvent *ev) {
     InputState *is = ed->input_state;
 
-    if (ev->is_char && ev->ch == 27) { /* Escape */
+    if (ev->is_char && ev->ch == KEY_ESC) { /* Escape */
         is->pending_mark = false;
         is->pending_jump_to_mark = false;
         input_state_reset(is);

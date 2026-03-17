@@ -1,4 +1,5 @@
 #include "input.h"
+#include "xalloc.h"
 #include "pane.h"
 #include "screen.h"
 #include "autocomplete.h"
@@ -7,7 +8,7 @@
 #include <string.h>
 
 InputState *input_state_new(void) {
-    InputState *s = calloc(1, sizeof(InputState));
+    InputState *s = xcalloc(1, sizeof(InputState));
     return s;
 }
 
@@ -71,7 +72,7 @@ void input_state_map_clear(InputState *s) {
 bool input_handle_find_char(InputState *is, Pane *pane,
                             void *ev_ptr, int count) {
     EditorEvent *ev = (EditorEvent *)ev_ptr;
-    if (ev->is_char && ev->ch == 27) {
+    if (ev->is_char && ev->ch == KEY_ESC) {
         input_state_reset(is);
         return false;
     }
@@ -90,7 +91,7 @@ bool input_handle_find_char(InputState *is, Pane *pane,
 
 bool input_handle_goto_line(InputState *is, Pane *pane, void *ev_ptr) {
     EditorEvent *ev = (EditorEvent *)ev_ptr;
-    if (ev->is_char && ev->ch == 27) {
+    if (ev->is_char && ev->ch == KEY_ESC) {
         input_state_reset(is);
         return false;
     }
@@ -108,7 +109,7 @@ bool input_handle_goto_line(InputState *is, Pane *pane, void *ev_ptr) {
         input_state_reset(is);
         return false;
     }
-    if (ev->is_char && (ev->ch == 127 || ev->ch == 8)) {
+    if (ev->is_char && (ev->ch == KEY_DEL || ev->ch == KEY_BS)) {
         if (is->goto_line_buf_len > 0) {
             is->goto_line_buffer[--is->goto_line_buf_len] = '\0';
             if (is->goto_line_buf_len == 0) {
