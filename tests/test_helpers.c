@@ -44,11 +44,16 @@ void test_setup_editor(const wchar_t *lines[], int count,
 }
 
 void test_send_char(Editor *ed, wchar_t ch) {
-    EditorEvent ev = {EV_KEY, (int)ch, ch, true};
+    EditorEvent ev = {EV_KEY, (int)ch, ch, true, false};
     editor_handle_key(ed, &ev);
 }
 
 void test_send_key(Editor *ed, int key) {
-    EditorEvent ev = {EV_KEY, key, 0, false};
+    EditorEvent ev = {EV_KEY, key, 0, false, false};
+    editor_handle_key(ed, &ev);
+}
+
+void test_send_paste_char(Editor *ed, wchar_t ch) {
+    EditorEvent ev = {EV_KEY, (int)ch, ch, true, true};
     editor_handle_key(ed, &ev);
 }

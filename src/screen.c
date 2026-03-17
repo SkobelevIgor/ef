@@ -232,8 +232,12 @@ static void render_autocomplete(AutocompleteState *ac,
 
 /* --- NcursesScreen implementation ---------------------------------------- */
 
+/* Custom key codes for bracketed paste mode (above KEY_MAX to avoid collision) */
+#define KEY_PASTE_START (KEY_MAX + 1)
+#define KEY_PASTE_END   (KEY_MAX + 2)
+
 typedef struct {
-    int dummy; /* ncurses uses global state */
+    bool pasting; /* true between paste start/end */
 } NcursesScreen;
 
 static void ncurses_render(void *self, Pane **panes, int npanes, int active,
@@ -494,11 +498,15 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
 }
 
 static int ncurses_poll_event(void *self, EditorEvent *ev) {
-    (void)self;
+    NcursesScreen *ns = (NcursesScreen *)self;
     timeout(1000);
-    int rc = wget_wch(stdscr, (wint_t *)&ev->key);
+    wint_t wch;
+    int rc = wget_wch(stdscr, &wch);
+    ev->key = (int)wch;
+    ev->is_paste = false;
 
     if (rc == ERR) {
+        if (ns->pasting) ns->pasting = false; /* Reset stuck paste state */
         ev->type = EV_NONE;
         ev->is_char = false;
         return 0;
@@ -507,15 +515,36 @@ static int ncurses_poll_event(void *self, EditorEvent *ev) {
     if (ev->key == KEY_RESIZE) {
         ev->type = EV_RESIZE;
         ev->is_char = false;
-    } else if (ev->key >= KEY_MIN) {
+        return 0;
+    }
+
+    /* Handle bracketed paste start/end as invisible events */
+    if (rc == KEY_CODE_YES && ev->key == KEY_PASTE_START) {
+        ns->pasting = true;
+        ev->type = EV_NONE;
+        ev->is_char = false;
+        return 0;
+    }
+    if (rc == KEY_CODE_YES && ev->key == KEY_PASTE_END) {
+        ns->pasting = false;
+        ev->type = EV_NONE;
+        ev->is_char = false;
+        return 0;
+    }
+
+    if (rc == KEY_CODE_YES) {
+        /* Special key (function key, arrow, etc.) */
         ev->type = EV_KEY;
         ev->ch = 0;
         ev->is_char = false;
     } else {
+        /* Regular wide character (OK) — includes Cyrillic, CJK, etc. */
         ev->type = EV_KEY;
-        ev->ch = (wchar_t)ev->key;
+        ev->ch = (wchar_t)wch;
         ev->is_char = true;
     }
+
+    ev->is_paste = ns->pasting;
     return 0;
 }
 
@@ -531,11 +560,17 @@ static void ncurses_sync(void *self) {
 
 static void ncurses_close(void *self) {
     (void)self;
+    /* Disable bracketed paste mode before closing */
+    printf("\033[?2004l");
+    fflush(stdout);
     endwin();
 }
 
 static void ncurses_suspend(void *self) {
-    (void)self;
+    NcursesScreen *ns = (NcursesScreen *)self;
+    printf("\033[?2004l");
+    fflush(stdout);
+    ns->pasting = false;
     endwin();
     kill(getpid(), SIGTSTP);
 }
@@ -543,6 +578,8 @@ static void ncurses_suspend(void *self) {
 static void ncurses_resume(void *self) {
     (void)self;
     refresh();
+    printf("\033[?2004h");
+    fflush(stdout);
 }
 
 ScreenVTable *ncurses_screen_new(void) {
@@ -554,6 +591,12 @@ ScreenVTable *ncurses_screen_new(void) {
     nonl();
     keypad(stdscr, TRUE);
     theme_init();
+
+    /* Enable bracketed paste mode and register custom key codes */
+    printf("\033[?2004h");
+    fflush(stdout);
+    define_key("\033[200~", KEY_PASTE_START);
+    define_key("\033[201~", KEY_PASTE_END);
 
     NcursesScreen *ns = calloc(1, sizeof(NcursesScreen));
     ScreenVTable *vt = calloc(1, sizeof(ScreenVTable));

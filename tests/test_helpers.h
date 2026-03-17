@@ -21,4 +21,7 @@ void test_send_char(Editor *ed, wchar_t ch);
 /* Dispatch a special-key event. */
 void test_send_key(Editor *ed, int key);
 
+/* Dispatch a character event with is_paste=true (bracketed paste). */
+void test_send_paste_char(Editor *ed, wchar_t ch);
+
 #endif /* EF_TEST_HELPERS_H */

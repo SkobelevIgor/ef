@@ -137,7 +137,7 @@ static void replay_expansion(Editor *ed, const char *expansion) {
         wchar_t ch;
         int consumed = parse_expansion_token(p, &ch);
         p += consumed;
-        EditorEvent ev = {EV_KEY, (int)ch, ch, true};
+        EditorEvent ev = {EV_KEY, (int)ch, ch, true, false};
         editor_handle_key(ed, &ev);
     }
     ed->input_state->replaying_expansion = false;
@@ -244,8 +244,43 @@ static void handle_char_keys(Editor *ed, wchar_t ch) {
     }
 }
 
+static void handle_paste_char(Editor *ed, wchar_t ch) {
+    Pane *pane = editor_active_pane(ed);
+    Buffer *buf = pane->buffer;
+
+    if (ch == 27) return; /* Ignore Escape during paste */
+
+    if (ch == L'\n' || ch == L'\r') {
+        buffer_insert_newline(buf, pane->cursor_row, pane->cursor_col,
+                              &pane->cursor_row, &pane->cursor_col);
+        editor_schedule_auto_save(ed);
+        return;
+    }
+
+    if (ch == L'\t') {
+        pane->cursor_col = buffer_insert_tab(buf, pane->cursor_row,
+                                             pane->cursor_col);
+        editor_schedule_auto_save(ed);
+        return;
+    }
+
+    if (ch >= 32) {
+        pane->cursor_col = buffer_insert_char(buf, pane->cursor_row,
+                                              pane->cursor_col, ch);
+        editor_schedule_auto_save(ed);
+    }
+}
+
 bool handle_insert_mode(Editor *ed, EditorEvent *ev) {
     if (ev->type != EV_KEY) return false;
+
+    /* During paste, bypass autocomplete and map triggers */
+    if (ev->is_paste) {
+        dismiss_ac(ed);
+        if (ev->is_char)
+            handle_paste_char(ed, ev->ch);
+        return false;
+    }
 
     /* Autocomplete navigation takes priority */
     if (handle_ac_keys(ed, ev)) return false;

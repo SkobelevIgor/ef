@@ -898,6 +898,11 @@ void editor_accept_autocomplete(Editor *ed) {
 /* --- Key handling -------------------------------------------------------- */
 
 bool editor_handle_key(Editor *ed, EditorEvent *ev) {
+    /* During paste, only insert mode should process characters */
+    if (ev->is_paste && ed->mode != MODE_INSERT) {
+        return false;
+    }
+
     /* F10 = quit */
     if (ev->type == EV_KEY && ev->key == KEY_F(10)) {
         editor_save_all_modified(ed);

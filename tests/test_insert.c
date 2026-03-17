@@ -368,6 +368,148 @@ void test_map_expansion_with_existing_text(void) {
     TEST_ASSERT_EQUAL_INT(7, editor_active_pane(ed)->cursor_col);
 }
 
+/* --- Paste mode tests ---------------------------------------------------- */
+
+static void send_paste_char(wchar_t ch) {
+    test_send_paste_char(ed, ch);
+}
+
+void test_insert_cyrillic_char(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+
+    send_char(L'\x41f'); /* Cyrillic П (U+041F) */
+    send_char(L'\x440'); /* Cyrillic р (U+0440) */
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(L'\x41f', buf->lines[0][0]);
+    TEST_ASSERT_EQUAL_INT(L'\x440', buf->lines[0][1]);
+}
+
+void test_paste_inserts_chars(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+
+    send_paste_char(L'h');
+    send_paste_char(L'i');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"hi", 2));
+}
+
+void test_paste_preserves_newlines(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+
+    /* Paste: "ab\ncd" */
+    send_paste_char(L'a');
+    send_paste_char(L'b');
+    send_paste_char(L'\n');
+    send_paste_char(L'c');
+    send_paste_char(L'd');
+
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]); /* "ab" */
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"ab", 2));
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[1]); /* "cd" */
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[1], L"cd", 2));
+}
+
+void test_paste_skips_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help hero", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    /* Paste "he" — should NOT trigger autocomplete */
+    send_paste_char(L'h');
+    send_paste_char(L'e');
+    TEST_ASSERT_NULL(ed->input_state->autocomplete);
+}
+
+void test_paste_newline_with_active_autocomplete(void) {
+    /* This is the critical bug: typing "pd" triggers AC suggesting "pandas",
+       then pasting \n should create a newline, NOT accept autocomplete */
+    const wchar_t *lines[] = {L"pandas numpy", L""};
+    setup_editor(lines, 2);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_row = 1;
+    p->cursor_col = 0;
+
+    /* Type "pd" normally to trigger AC */
+    send_char(L'p');
+    send_char(L'd');
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+
+    /* Now paste a newline — should dismiss AC and insert newline */
+    send_paste_char(L'\n');
+    TEST_ASSERT_NULL(ed->input_state->autocomplete);
+    TEST_ASSERT_EQUAL_INT(3, buf->line_count);
+    /* Line 1 should still be "pd", not "pandas" */
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[1]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[1], L"pd", 2));
+}
+
+void test_paste_skips_map_triggers(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+    ed->config = make_map_config();
+
+    /* Paste "((" — should NOT trigger map expansion */
+    send_paste_char(L'(');
+    send_paste_char(L'(');
+
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"((", 2));
+}
+
+void test_paste_no_auto_indent(void) {
+    const wchar_t *lines[] = {L"    indented"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+    p->cursor_col = 12; /* end of line */
+
+    /* Paste newline + unindented text */
+    send_paste_char(L'\n');
+    send_paste_char(L'x');
+
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    /* New line should have just "x", no auto-indent */
+    TEST_ASSERT_EQUAL_INT(1, buf->line_lens[1]);
+    TEST_ASSERT_EQUAL_INT(L'x', buf->lines[1][0]);
+}
+
+void test_paste_ignored_in_normal_mode(void) {
+    const wchar_t *lines[] = {L"hello"};
+    setup_editor(lines, 1);
+    /* Stay in normal mode (don't call editor_enter_insert_mode) */
+    ed->mode = MODE_NORMAL;
+
+    /* Paste "dd" — should NOT delete the line */
+    test_send_paste_char(ed, L'd');
+    test_send_paste_char(ed, L'd');
+
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(5, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"hello", 5));
+}
+
+void test_paste_cyrillic_chars(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+
+    /* Paste Russian text */
+    send_paste_char(L'\x41f'); /* П */
+    send_paste_char(L'\x440'); /* р */
+    send_paste_char(L'\x438'); /* и */
+    send_paste_char(L'\x432'); /* в */
+    send_paste_char(L'\x435'); /* е */
+    send_paste_char(L'\x442'); /* т */
+
+    TEST_ASSERT_EQUAL_INT(6, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(L'\x41f', buf->lines[0][0]);
+    TEST_ASSERT_EQUAL_INT(L'\x442', buf->lines[0][5]);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -393,5 +535,15 @@ int main(void) {
     RUN_TEST(test_map_double_quote_no_infinite_recursion);
     RUN_TEST(test_map_single_quote_no_infinite_recursion);
     RUN_TEST(test_map_expansion_with_existing_text);
+    /* Paste mode tests */
+    RUN_TEST(test_insert_cyrillic_char);
+    RUN_TEST(test_paste_inserts_chars);
+    RUN_TEST(test_paste_preserves_newlines);
+    RUN_TEST(test_paste_skips_autocomplete);
+    RUN_TEST(test_paste_newline_with_active_autocomplete);
+    RUN_TEST(test_paste_skips_map_triggers);
+    RUN_TEST(test_paste_no_auto_indent);
+    RUN_TEST(test_paste_ignored_in_normal_mode);
+    RUN_TEST(test_paste_cyrillic_chars);
     return UNITY_END();
 }

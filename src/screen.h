@@ -23,6 +23,7 @@ typedef struct {
     int       key;       /* ncurses key code or char */
     wchar_t   ch;        /* wide character if printable */
     bool      is_char;   /* true if ch is valid printable */
+    bool      is_paste;  /* true when inside bracketed paste */
 } EditorEvent;
 
 /* PaneLayout represents computed layout for a single pane viewport. */
