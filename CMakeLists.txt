@@ -88,14 +88,26 @@ install(TARGETS ef DESTINATION bin)
 set(EFCONFIG_SRC "${CMAKE_CURRENT_SOURCE_DIR}/.efconfig")
 install(CODE "
     set(_src \"${EFCONFIG_SRC}\")
-    set(_home \"\$ENV{HOME}\")
+
+    # When running under sudo, resolve the real user's home directory
+    set(_sudo_user \"\$ENV{SUDO_USER}\")
+    if(_sudo_user)
+        execute_process(
+            COMMAND sh -c \"eval echo ~\${_sudo_user}\"
+            OUTPUT_VARIABLE _home
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+    else()
+        set(_home \"\$ENV{HOME}\")
+    endif()
+
     set(_cfg \"\${_home}/.efconfig\")
     set(_def \"\${_home}/.efconfig.default\")
 
     file(INSTALL \"\${_src}\" DESTINATION \"\${_home}\" RENAME \".efconfig.default\")
 
     if(EXISTS \"\${_cfg}\")
-        message(STATUS \"New defaults are available in ~/.efconfig.default\")
+        message(STATUS \"New defaults are available in \${_home}/.efconfig.default\")
     else()
         file(INSTALL \"\${_src}\" DESTINATION \"\${_home}\" RENAME \".efconfig\")
     endif()
