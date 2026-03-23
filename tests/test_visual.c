@@ -66,16 +66,19 @@ void test_visual_delete(void) {
     TEST_ASSERT_EQUAL_INT(MODE_NORMAL, ed->mode);
     /* "hel" deleted (inclusive), "lo" remains */
     TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
-    /* Visual delete must NOT touch clipboard */
-    TEST_ASSERT_EQUAL_INT(0, ed->clipboard->line_count);
+    /* Visual delete must cut into clipboard (char-mode) */
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    TEST_ASSERT_FALSE(ed->clipboard->is_line_mode);
+    TEST_ASSERT_EQUAL_INT(3, ed->clipboard->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(ed->clipboard->lines[0], L"hel", 3));
 }
 
-void test_visual_delete_preserves_clipboard(void) {
+void test_visual_delete_overwrites_clipboard(void) {
     const wchar_t *lines[] = {L"hello", L"world"};
     setup_editor(lines, 2);
     Pane *p = editor_active_pane(ed);
 
-    /* Yank first line */
+    /* Yank first two lines */
     p->cursor_col = 0;
     pane_start_selection(p);
     send_char(L'j');
@@ -83,7 +86,7 @@ void test_visual_delete_preserves_clipboard(void) {
     TEST_ASSERT_TRUE(ed->clipboard->is_line_mode);
     TEST_ASSERT_EQUAL_INT(2, ed->clipboard->line_count);
 
-    /* Re-enter visual mode and delete */
+    /* Re-enter visual mode and delete "hel" */
     ed->mode = MODE_VISUAL;
     p->cursor_row = 0;
     p->cursor_col = 0;
@@ -91,9 +94,10 @@ void test_visual_delete_preserves_clipboard(void) {
     p->cursor_col = 2;
     send_char(L'd');
 
-    /* Clipboard must still have the yanked lines */
-    TEST_ASSERT_TRUE(ed->clipboard->is_line_mode);
-    TEST_ASSERT_EQUAL_INT(2, ed->clipboard->line_count);
+    /* Clipboard must be overwritten with deleted text (char-mode) */
+    TEST_ASSERT_FALSE(ed->clipboard->is_line_mode);
+    TEST_ASSERT_EQUAL_INT(1, ed->clipboard->line_count);
+    TEST_ASSERT_EQUAL_INT(3, ed->clipboard->line_lens[0]); /* "hel" */
 }
 
 void test_visual_indent(void) {
@@ -237,7 +241,7 @@ int main(void) {
     RUN_TEST(test_v_toggles_visual);
     RUN_TEST(test_visual_yank);
     RUN_TEST(test_visual_delete);
-    RUN_TEST(test_visual_delete_preserves_clipboard);
+    RUN_TEST(test_visual_delete_overwrites_clipboard);
     RUN_TEST(test_visual_indent);
     RUN_TEST(test_visual_unindent);
     RUN_TEST(test_visual_yank_multiline_is_linemode);

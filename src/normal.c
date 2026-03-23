@@ -241,6 +241,7 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
             }
         }
         if (del_count > 0) {
+            clipboard_set(ed->clipboard, &deleted_chars, &del_count, 1, false);
             history_record_delete(ed->history, buf, pane->cursor_row,
                                   start_col, &deleted_chars, &del_count, 1);
         }
@@ -290,6 +291,7 @@ static void handle_op_dd(Editor *ed, int count) {
         deleted[i] = buffer_delete_line(buf, pane->cursor_row, &del_lens[i]);
         actual++;
     }
+    clipboard_set(ed->clipboard, deleted, del_lens, actual, true);
     history_record_delete_lines(ed->history, buf, start_row,
                                 deleted, del_lens, actual);
     for (int i = 0; i < actual; i++) free(deleted[i]);
@@ -326,6 +328,7 @@ static void normal_delete_range(Editor *ed, int sr, int sc, int er, int ec) {
     int del_count;
     wchar_t **deleted = buffer_delete_range(buf, sr, sc, er, ec,
                                             &del_lens, &del_count);
+    clipboard_set(ed->clipboard, deleted, del_lens, del_count, false);
     history_record_delete(ed->history, buf, sr, sc,
                           deleted, del_lens, del_count);
     buffer_free_lines(deleted, del_lens, del_count);
@@ -360,6 +363,7 @@ static void normal_delete_to_col(Editor *ed, int from, int to) {
                                buf->line_lens[pane->cursor_row],
                                from, to, &new_len);
     buffer_set_line(buf, pane->cursor_row, nl, new_len);
+    clipboard_set(ed->clipboard, &del, &del_len, 1, false);
     history_record_delete(ed->history, buf, pane->cursor_row,
                           from, &del, &del_len, 1);
     free(del);
