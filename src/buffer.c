@@ -341,10 +341,19 @@ void buffer_insert_newline_with_indent(Buffer *buf, int row, int col,
     if (indent_len > 0 && indent) {
         wchar_t *new_line_content = buf->lines[*new_row];
         int new_line_len = buf->line_lens[*new_row];
-        int total = indent_len + new_line_len;
+        /* When cursor was within the indentation area, the right part
+           already contains leftover whitespace — skip it to avoid
+           duplicating indentation. */
+        int skip = 0;
+        if (col < indent_len) {
+            skip = indent_len - col;
+            if (skip > new_line_len) skip = new_line_len;
+        }
+        int content_len = new_line_len - skip;
+        int total = indent_len + content_len;
         wchar_t *indented = xmalloc(sizeof(wchar_t) * (total + 1));
         wmemcpy(indented, indent, indent_len);
-        wmemcpy(indented + indent_len, new_line_content, new_line_len);
+        wmemcpy(indented + indent_len, new_line_content + skip, content_len);
         indented[total] = L'\0';
         buffer_set_line(buf, *new_row, indented, total);
         *new_col = indent_len;

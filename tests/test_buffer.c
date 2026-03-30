@@ -238,6 +238,101 @@ void test_save_and_load(void) {
     remove(tmp);
 }
 
+/* --- NewlineWithIndent tests --------------------------------------------- */
+
+void test_newline_with_indent_at_end_of_indented_line(void) {
+    /* Line: "\thello", cursor at end (col 6) — new line should get "\t" */
+    wchar_t *l = malloc(sizeof(wchar_t) * 7);
+    wmemcpy(l, L"\thello", 6); l[6] = L'\0';
+    buffer_set_line(buf, 0, l, 6);
+    buf->config.auto_indentation = true;
+
+    int nr, nc;
+    buffer_insert_newline_with_indent(buf, 0, 6, &nr, &nc);
+    TEST_ASSERT_EQUAL_INT(1, nr);
+    TEST_ASSERT_EQUAL_INT(1, nc);  /* cursor at indent_len */
+    TEST_ASSERT_EQUAL_INT(1, buf->line_lens[1]);
+    TEST_ASSERT_EQUAL_INT(L'\t', buf->lines[1][0]);
+}
+
+void test_newline_with_indent_cursor_within_indentation(void) {
+    /* Line: "\t\t" (2 tabs), cursor at col 1 (between tabs).
+       Bug: right part "\t" gets full indent "\t\t" prepended → 3 tabs.
+       Expected: new line should have "\t\t" (same indent), not "\t\t\t". */
+    wchar_t *l = malloc(sizeof(wchar_t) * 3);
+    wmemcpy(l, L"\t\t", 2); l[2] = L'\0';
+    buffer_set_line(buf, 0, l, 2);
+    buf->config.auto_indentation = true;
+
+    int nr, nc;
+    buffer_insert_newline_with_indent(buf, 0, 1, &nr, &nc);
+    TEST_ASSERT_EQUAL_INT(1, nr);
+    TEST_ASSERT_EQUAL_INT(2, nc);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[1]);
+    TEST_ASSERT_EQUAL_INT(L'\t', buf->lines[1][0]);
+    TEST_ASSERT_EQUAL_INT(L'\t', buf->lines[1][1]);
+}
+
+void test_newline_with_indent_cursor_at_start_of_indented_line(void) {
+    /* Line: "    hello" (4 spaces + text), cursor at col 0.
+       Right part is "    hello". Should become "    hello" (indent + content),
+       not "        hello" (double indent). */
+    wchar_t *l = malloc(sizeof(wchar_t) * 10);
+    wmemcpy(l, L"    hello", 9); l[9] = L'\0';
+    buffer_set_line(buf, 0, l, 9);
+    buf->config.auto_indentation = true;
+
+    int nr, nc;
+    buffer_insert_newline_with_indent(buf, 0, 0, &nr, &nc);
+    TEST_ASSERT_EQUAL_INT(1, nr);
+    TEST_ASSERT_EQUAL_INT(4, nc);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]); /* left part is empty */
+    TEST_ASSERT_EQUAL_INT(9, buf->line_lens[1]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[1], L"    hello", 9));
+}
+
+void test_newline_with_indent_repeated_enter_no_accumulation(void) {
+    /* Simulate: indented line, Tab, Enter, Enter — indent must not grow.
+       Line: "\t" (1 tab), cursor at col 1 (end). First Enter should produce
+       a new line with "\t". Second Enter on that new line should also produce "\t",
+       not "\t\t". */
+    wchar_t *l = malloc(sizeof(wchar_t) * 2);
+    wmemcpy(l, L"\t", 1); l[1] = L'\0';
+    buffer_set_line(buf, 0, l, 1);
+    buf->config.auto_indentation = true;
+
+    int nr, nc;
+    buffer_insert_newline_with_indent(buf, 0, 1, &nr, &nc);
+    TEST_ASSERT_EQUAL_INT(1, nr);
+    TEST_ASSERT_EQUAL_INT(1, nc);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_lens[1]);
+
+    /* Second Enter on the new line (row 1, cursor at indent end col 1) */
+    int nr2, nc2;
+    buffer_insert_newline_with_indent(buf, 1, 1, &nr2, &nc2);
+    TEST_ASSERT_EQUAL_INT(2, nr2);
+    TEST_ASSERT_EQUAL_INT(1, nc2);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_lens[2]);
+    TEST_ASSERT_EQUAL_INT(L'\t', buf->lines[2][0]);
+}
+
+void test_newline_with_indent_spaces_cursor_mid_indent(void) {
+    /* Line: "        " (8 spaces), cursor at col 4 (middle of indent).
+       Right part is "    " (4 spaces). Should become "        " (8 spaces),
+       not "            " (12 spaces). */
+    wchar_t *l = malloc(sizeof(wchar_t) * 9);
+    wmemcpy(l, L"        ", 8); l[8] = L'\0';
+    buffer_set_line(buf, 0, l, 8);
+    buf->config.auto_indentation = true;
+
+    int nr, nc;
+    buffer_insert_newline_with_indent(buf, 0, 4, &nr, &nc);
+    TEST_ASSERT_EQUAL_INT(1, nr);
+    TEST_ASSERT_EQUAL_INT(8, nc);
+    TEST_ASSERT_EQUAL_INT(8, buf->line_lens[1]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[1], L"        ", 8));
+}
+
 /* --- IndentRange tests --------------------------------------------------- */
 
 void test_indent_range_with_tab(void) {
@@ -387,6 +482,11 @@ int main(void) {
     RUN_TEST(test_delete_char_forward);
     RUN_TEST(test_delete_char_forward_at_end_joins);
     RUN_TEST(test_insert_newline_splits_line);
+    RUN_TEST(test_newline_with_indent_at_end_of_indented_line);
+    RUN_TEST(test_newline_with_indent_cursor_within_indentation);
+    RUN_TEST(test_newline_with_indent_cursor_at_start_of_indented_line);
+    RUN_TEST(test_newline_with_indent_repeated_enter_no_accumulation);
+    RUN_TEST(test_newline_with_indent_spaces_cursor_mid_indent);
     RUN_TEST(test_delete_line_single_line_empties);
     RUN_TEST(test_delete_line_out_of_bounds);
     RUN_TEST(test_delete_line_removes_line);
