@@ -1,5 +1,6 @@
 #include "config.h"
 #include "xalloc.h"
+#include "buffer.h"
 #include "editor.h"
 
 #include <stdio.h>
@@ -56,6 +57,15 @@ int main(int argc, char *argv[]) {
     FileInfo *files = xmalloc(sizeof(FileInfo) * nargs);
     for (int i = 0; i < nargs; i++) {
         parse_file_arg(args[i], &files[i].filename, &files[i].line);
+    }
+
+    for (int i = 0; i < nargs; i++) {
+        if (buffer_check_writable(files[i].filename) != 0) {
+            fprintf(stderr, "ef: '%s': permission denied\n", files[i].filename);
+            for (int j = 0; j < nargs; j++) free(files[j].filename);
+            free(files);
+            return 1;
+        }
     }
 
     config_ensure_default(NULL);

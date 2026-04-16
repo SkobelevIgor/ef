@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <locale.h>
+#include <unistd.h>
 
 /* --- Internal helpers ---------------------------------------------------- */
 
@@ -52,6 +53,12 @@ Buffer *buffer_new_from_file(const char *filename) {
         }
     }
     return buf;
+}
+
+int buffer_check_writable(const char *filename) {
+    if (!filename) return -1;
+    if (access(filename, F_OK) != 0) return 0;  /* file doesn't exist – OK */
+    return access(filename, W_OK) == 0 ? 0 : -1;
 }
 
 void buffer_free(Buffer *buf) {

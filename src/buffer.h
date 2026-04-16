@@ -52,6 +52,11 @@ Buffer *buffer_new(void);
 /* Create a new buffer for the given filename. Loads file if it exists. */
 Buffer *buffer_new_from_file(const char *filename);
 
+/* Check whether filename can be opened for editing.
+   Returns 0 if the file does not exist (will be created) or if it is writable.
+   Returns -1 if the file exists but the user lacks write permission. */
+int buffer_check_writable(const char *filename);
+
 /* Free a buffer and all its lines. */
 void buffer_free(Buffer *buf);
 

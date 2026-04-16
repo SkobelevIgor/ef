@@ -6,6 +6,9 @@
 #include <string.h>
 #include <locale.h>
 #include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <pwd.h>
 
 static Buffer *buf;
 
@@ -468,6 +471,43 @@ void test_replace_all_empty_source(void) {
     TEST_ASSERT_EQUAL_INT(0, buf->line_count);
 }
 
+/* --- buffer_check_writable tests ---------------------------------------- */
+
+void test_check_writable_null_filename_fails(void) {
+    TEST_ASSERT_EQUAL_INT(-1, buffer_check_writable(NULL));
+}
+
+void test_check_writable_nonexistent_file_ok(void) {
+    TEST_ASSERT_EQUAL_INT(0, buffer_check_writable("/tmp/ef_no_such_file_xyz123.txt"));
+}
+
+void test_check_writable_writable_file_ok(void) {
+    const char *tmp = "/tmp/ef_test_writable.txt";
+    FILE *f = fopen(tmp, "w");
+    TEST_ASSERT_NOT_NULL(f);
+    fclose(f);
+    chmod(tmp, 0644);
+
+    TEST_ASSERT_EQUAL_INT(0, buffer_check_writable(tmp));
+    remove(tmp);
+}
+
+void test_check_writable_readonly_file_fails(void) {
+    if (getuid() == 0) {
+        TEST_IGNORE_MESSAGE("skipped: root bypasses file permission checks");
+        return;
+    }
+    const char *tmp = "/tmp/ef_test_readonly.txt";
+    FILE *f = fopen(tmp, "w");
+    TEST_ASSERT_NOT_NULL(f);
+    fclose(f);
+    chmod(tmp, 0444);
+
+    TEST_ASSERT_EQUAL_INT(-1, buffer_check_writable(tmp));
+    chmod(tmp, 0644);
+    remove(tmp);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -508,5 +548,9 @@ int main(void) {
     RUN_TEST(test_replace_all_replaces_content);
     RUN_TEST(test_replace_all_single_line);
     RUN_TEST(test_replace_all_empty_source);
+    RUN_TEST(test_check_writable_null_filename_fails);
+    RUN_TEST(test_check_writable_nonexistent_file_ok);
+    RUN_TEST(test_check_writable_writable_file_ok);
+    RUN_TEST(test_check_writable_readonly_file_fails);
     return UNITY_END();
 }
