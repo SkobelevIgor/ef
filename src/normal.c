@@ -86,7 +86,7 @@ bool handle_normal_mode(Editor *ed, EditorEvent *ev) {
         return false;
     }
     if (ch == CTRL_R) { /* Ctrl+R */
-        editor_redo(ed);
+        if (!ed->read_only) editor_redo(ed);
         input_state_reset(is);
         return false;
     }
@@ -134,36 +134,49 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
     case L'$': pane_move_to_line_end(pane); break;
 
     /* Mode switching */
-    case L'i': editor_enter_insert_mode(ed); break;
-    case L'a':
-        if (pane->cursor_col < buf->line_lens[pane->cursor_row]) {
-            pane->cursor_col++;
-        }
+    case L'i':
         editor_enter_insert_mode(ed);
+        break;
+    case L'a':
+        if (!ed->read_only) {
+            if (pane->cursor_col < buf->line_lens[pane->cursor_row])
+                pane->cursor_col++;
+            editor_enter_insert_mode(ed);
+        }
         break;
     case L'A':
-        pane_move_to_line_end(pane);
-        editor_enter_insert_mode(ed);
+        if (!ed->read_only) {
+            pane_move_to_line_end(pane);
+            editor_enter_insert_mode(ed);
+        }
         break;
     case L'I':
-        pane_move_to_line_start(pane);
-        editor_enter_insert_mode(ed);
+        if (!ed->read_only) {
+            pane_move_to_line_start(pane);
+            editor_enter_insert_mode(ed);
+        }
         break;
     case L'o':
-        editor_enter_insert_mode(ed);
-        buffer_open_line_below(buf, pane->cursor_row,
-                               &pane->cursor_row, &pane->cursor_col);
-        editor_schedule_auto_save(ed);
+        if (!ed->read_only) {
+            editor_enter_insert_mode(ed);
+            buffer_open_line_below(buf, pane->cursor_row,
+                                   &pane->cursor_row, &pane->cursor_col);
+            editor_schedule_auto_save(ed);
+        }
         break;
     case L'O':
-        editor_enter_insert_mode(ed);
-        buffer_open_line_above(buf, pane->cursor_row,
-                               &pane->cursor_row, &pane->cursor_col);
-        editor_schedule_auto_save(ed);
+        if (!ed->read_only) {
+            editor_enter_insert_mode(ed);
+            buffer_open_line_above(buf, pane->cursor_row,
+                                   &pane->cursor_row, &pane->cursor_col);
+            editor_schedule_auto_save(ed);
+        }
         break;
     case L'v':
-        ed->mode = MODE_VISUAL;
-        pane_start_selection(pane);
+        if (!ed->read_only) {
+            ed->mode = MODE_VISUAL;
+            pane_start_selection(pane);
+        }
         break;
 
     /* Find char */
@@ -222,6 +235,7 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
 
     /* Operators */
     case L'd':
+        if (ed->read_only) break;
         is->pending_operator = L'd';
         return true;
     case L'y':
@@ -230,6 +244,7 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
 
     /* Delete char under cursor */
     case L'x': {
+        if (ed->read_only) break;
         int start_col = pane->cursor_col;
         wchar_t *deleted_chars = xmalloc(sizeof(wchar_t) * count);
         int del_count = 0;
@@ -253,17 +268,17 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
 
     /* Paste */
     case L'p':
-        if (ed->clipboard->line_count > 0)
+        if (!ed->read_only && ed->clipboard->line_count > 0)
             editor_paste_after(ed);
         break;
     case L'P':
-        if (ed->clipboard->line_count > 0)
+        if (!ed->read_only && ed->clipboard->line_count > 0)
             editor_paste_before(ed);
         break;
 
     /* Undo */
     case L'u':
-        editor_undo(ed);
+        if (!ed->read_only) editor_undo(ed);
         break;
 
     /* Marks */

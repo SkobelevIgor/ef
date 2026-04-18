@@ -81,6 +81,7 @@ static void paste_multiline(Editor *ed, int insert_pos) {
 }
 
 static void perform_paste(Editor *ed, bool before) {
+    if (ed->read_only) return;
     Clipboard *cb = ed->clipboard;
     if (cb->line_count == 0) return;
 

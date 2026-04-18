@@ -43,14 +43,23 @@ int main(int argc, char *argv[]) {
     int nargs = argc - 1;
 
     SplitMode split = SPLIT_VERTICAL;
-    if (nargs > 0 && strcmp(args[0], "-h") == 0) {
-        split = SPLIT_HORIZONTAL;
+    bool read_only = false;
+
+    /* Consume flags: -h and -r (order-independent) */
+    while (nargs > 0 && args[0][0] == '-') {
+        if (strcmp(args[0], "-h") == 0) {
+            split = SPLIT_HORIZONTAL;
+        } else if (strcmp(args[0], "-r") == 0) {
+            read_only = true;
+        } else {
+            break;
+        }
         args++;
         nargs--;
     }
 
     if (nargs < 1) {
-        fprintf(stderr, "Usage: ef [-h] <filename[:line]> [filename2[:line]] ...\n");
+        fprintf(stderr, "Usage: ef [-h] [-r] <filename[:line]> [filename2[:line]] ...\n");
         return 1;
     }
 
@@ -59,12 +68,15 @@ int main(int argc, char *argv[]) {
         parse_file_arg(args[i], &files[i].filename, &files[i].line);
     }
 
-    for (int i = 0; i < nargs; i++) {
-        if (buffer_check_writable(files[i].filename) != 0) {
-            fprintf(stderr, "ef: '%s': permission denied\n", files[i].filename);
-            for (int j = 0; j < nargs; j++) free(files[j].filename);
-            free(files);
-            return 1;
+    if (!read_only) {
+        for (int i = 0; i < nargs; i++) {
+            if (buffer_check_writable(files[i].filename) != 0) {
+                fprintf(stderr, "ef: '%s': permission denied. Use ef -r %s for read-only mode.\n",
+                        files[i].filename, files[i].filename);
+                for (int j = 0; j < nargs; j++) free(files[j].filename);
+                free(files);
+                return 1;
+            }
         }
     }
 
@@ -77,6 +89,7 @@ int main(int argc, char *argv[]) {
         free(files);
         return 1;
     }
+    ed->read_only = read_only;
 
     int ret = editor_run(ed);
 

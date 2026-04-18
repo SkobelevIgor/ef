@@ -130,6 +130,7 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
     }
 
     case L'd': case L'x': {
+        if (ed->read_only) break;
         int sr, sc, er, ec;
         pane_get_selection(pane, &sr, &sc, &er, &ec);
         int *del_lens; int del_count;
@@ -150,6 +151,7 @@ bool handle_visual_mode(Editor *ed, EditorEvent *ev) {
     }
 
     case L'>': case L'<': case L'=': {
+        if (ed->read_only) break;
         int sr, sc, er, ec;
         pane_get_selection(pane, &sr, &sc, &er, &ec);
         if (ch == L'>') buffer_indent_range(buf, sr, er);

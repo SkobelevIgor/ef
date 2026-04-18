@@ -102,6 +102,7 @@ static void apply_insert_text(Buffer *buf, Change *c) {
 }
 
 void editor_undo(Editor *ed) {
+    if (ed->read_only) return;
     Change *c = history_undo(ed->history);
     if (!c) return;
 
@@ -142,6 +143,7 @@ void editor_undo(Editor *ed) {
 }
 
 void editor_redo(Editor *ed) {
+    if (ed->read_only) return;
     Change *c = history_redo(ed->history);
     if (!c) return;
 

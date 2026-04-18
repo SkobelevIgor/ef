@@ -8,8 +8,8 @@ int test_mock_width = 80;
 int test_mock_height = 24;
 
 static void mock_render(void *s, Pane **p, int n, int a,
-                        Mode m, InputState *i, SplitMode sp)
-{ (void)s;(void)p;(void)n;(void)a;(void)m;(void)i;(void)sp; }
+                        Mode m, InputState *i, SplitMode sp, bool ro)
+{ (void)s;(void)p;(void)n;(void)a;(void)m;(void)i;(void)sp;(void)ro; }
 static int mock_poll(void *s, EditorEvent *e)
 { (void)s;(void)e; return 0; }
 static void mock_size(void *s, int *w, int *h)

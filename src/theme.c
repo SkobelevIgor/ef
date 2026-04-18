@@ -22,6 +22,7 @@ void theme_init(void) {
     init_pair(PAIR_AUTOCOMPLETE_NORMAL,   COLOR_BLACK,   COLOR_MAGENTA);
     init_pair(PAIR_AUTOCOMPLETE_SELECTED, COLOR_WHITE,   COLOR_BLACK);
     init_pair(PAIR_SEPARATOR,             8,             -1);
+    init_pair(PAIR_READONLY_LINENUM,      COLOR_WHITE,   COLOR_RED);
 }
 
 static int theme_current_linenum_pair(Mode m) {

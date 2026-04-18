@@ -155,6 +155,7 @@ void editor_update_widget_matches(Editor *ed) {
 }
 
 void editor_widget_replace_current(Editor *ed) {
+    if (ed->read_only) return;
     Pane *pane = editor_active_pane(ed);
     WidgetState *w = pane->widget;
     WidgetSession *s = widget_current_session(w);

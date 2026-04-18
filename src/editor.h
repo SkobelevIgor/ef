@@ -56,6 +56,8 @@ typedef struct Editor {
 
     EditorConfig       *config;
     FileWatcherVTable  *watcher;
+
+    bool read_only; /* set via -r flag; blocks all mutations */
 } Editor;
 
 /* Create editor for testing (no screen init, mock-friendly). */

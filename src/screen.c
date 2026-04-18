@@ -242,7 +242,8 @@ typedef struct {
 } NcursesScreen;
 
 static void ncurses_render(void *self, Pane **panes, int npanes, int active,
-                           Mode mode, InputState *input, SplitMode split) {
+                           Mode mode, InputState *input, SplitMode split,
+                           bool read_only) {
     (void)self;
     erase();
     int width, height;
@@ -306,7 +307,9 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
         int text_w = lay->width - ln_w;
         if (text_w < 1) text_w = 1;
 
-        int cur_ln_pair = theme_gutter_current_line_pair(i == active, mode);
+        int cur_ln_pair = (read_only && i == active)
+            ? PAIR_READONLY_LINENUM
+            : theme_gutter_current_line_pair(i == active, mode);
 
         pane_adjust_scroll(pane, text_w, pane_h);
 

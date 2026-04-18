@@ -71,6 +71,7 @@ void editor_trigger_autocomplete(Editor *ed) {
 }
 
 void editor_accept_autocomplete(Editor *ed) {
+    if (ed->read_only) return;
     AutocompleteState *ac = ed->input_state->autocomplete;
     if (!ac || ac->suggestion_count == 0) return;
 

@@ -148,6 +148,7 @@ Buffer *editor_active_buffer(Editor *ed) {
 /* --- Insert mode entry --------------------------------------------------- */
 
 void editor_enter_insert_mode(Editor *ed) {
+    if (ed->read_only) return;
     Pane *p = editor_active_pane(ed);
     Buffer *buf = p->buffer;
     history_start_session(ed->history, buf, p->cursor_row, p->cursor_col);
@@ -157,10 +158,12 @@ void editor_enter_insert_mode(Editor *ed) {
 /* --- Auto-save (simplified: immediate save) ------------------------------ */
 
 void editor_schedule_auto_save(Editor *ed) {
+    if (ed->read_only) return;
     editor_save_all_modified(ed);
 }
 
 void editor_save_all_modified(Editor *ed) {
+    if (ed->read_only) return;
     for (int i = 0; i < ed->buffer_count; i++) {
         Buffer *buf = ed->buffer_registry[i];
         if (buf->modified) {
@@ -182,7 +185,7 @@ bool editor_handle_key(Editor *ed, EditorEvent *ev) {
 
     /* F10 = quit */
     if (ev->type == EV_KEY && ev->key == KEY_F(10)) {
-        editor_save_all_modified(ed);
+        if (!ed->read_only) editor_save_all_modified(ed);
         return true;
     }
 
@@ -281,7 +284,7 @@ int editor_run(Editor *ed) {
     while (1) {
         ed->screen->render(ed->screen->impl, ed->panes, ed->pane_count,
                            ed->active_pane_idx, ed->mode, ed->input_state,
-                           ed->split_mode);
+                           ed->split_mode, ed->read_only);
         EditorEvent ev;
         ed->screen->poll_event(ed->screen->impl, &ev);
 

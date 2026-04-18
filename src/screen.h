@@ -38,7 +38,7 @@ typedef struct {
 /* ScreenVTable abstracts terminal screen operations (dependency inversion). */
 typedef struct {
     void (*render)(void *self, Pane **panes, int npanes, int active,
-                   Mode mode, InputState *input, SplitMode split);
+                   Mode mode, InputState *input, SplitMode split, bool read_only);
     int  (*poll_event)(void *self, EditorEvent *ev);
     void (*get_size)(void *self, int *w, int *h);
     void (*sync)(void *self);
