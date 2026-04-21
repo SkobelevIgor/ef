@@ -42,15 +42,24 @@ int main(int argc, char *argv[]) {
     char **args = argv + 1;
     int nargs = argc - 1;
 
-    SplitMode split = SPLIT_VERTICAL;
-    bool read_only = false;
+    SplitMode   split      = SPLIT_VERTICAL;
+    bool        read_only  = false;
+    const char *forced_ext = NULL;
 
-    /* Consume flags: -h and -r (order-independent) */
+    /* Consume flags: -h, -r, -e/-ext (order-independent) */
     while (nargs > 0 && args[0][0] == '-') {
         if (strcmp(args[0], "-h") == 0) {
             split = SPLIT_HORIZONTAL;
         } else if (strcmp(args[0], "-r") == 0) {
             read_only = true;
+        } else if (strcmp(args[0], "-e") == 0 || strcmp(args[0], "-ext") == 0) {
+            if (nargs < 2) {
+                fprintf(stderr, "ef: %s requires an argument\n", args[0]);
+                return 1;
+            }
+            forced_ext = args[1];
+            args++;
+            nargs--;
         } else {
             break;
         }
@@ -59,7 +68,8 @@ int main(int argc, char *argv[]) {
     }
 
     if (nargs < 1) {
-        fprintf(stderr, "Usage: ef [-h] [-r] <filename[:line]> [filename2[:line]] ...\n");
+        fprintf(stderr,
+                "Usage: ef [-h] [-r] [-e|-ext <type>] <filename[:line]> ...\n");
         return 1;
     }
 
@@ -82,6 +92,20 @@ int main(int argc, char *argv[]) {
 
     config_ensure_default(NULL);
 
+    if (forced_ext) {
+        EditorConfig *vcfg = config_load(NULL);
+        if (vcfg) {
+            if (!config_get_file_type(vcfg, forced_ext)) {
+                fprintf(stderr, "ef: unknown file type '%s'\n", forced_ext);
+                config_free(vcfg);
+                for (int i = 0; i < nargs; i++) free(files[i].filename);
+                free(files);
+                return 1;
+            }
+            config_free(vcfg);
+        }
+    }
+
     Editor *ed = editor_new(files, nargs, split);
     if (!ed) {
         fprintf(stderr, "Error: failed to initialize editor\n");
@@ -90,6 +114,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     ed->read_only = read_only;
+    if (forced_ext)
+        editor_apply_forced_highlighting(ed, forced_ext);
 
     int ret = editor_run(ed);
 

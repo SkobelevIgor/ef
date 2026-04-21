@@ -47,10 +47,12 @@ Editor *editor_new_with_deps(ScreenVTable *screen,
     return ed;
 }
 
-static void setup_buffer_highlighting(EditorConfig *cfg, Buffer *buf) {
-    if (!cfg || !buf->filename) return;
+static void setup_buffer_highlighting(EditorConfig *cfg, Buffer *buf,
+                                      const char *forced_ft) {
+    if (!cfg) return;
 
-    const char *ft = config_detect_file_type(cfg, buf->filename);
+    const char *ft = forced_ft ? forced_ft
+                               : config_detect_file_type(cfg, buf->filename);
     if (!ft) return;
 
     free(buf->file_type);
@@ -64,6 +66,8 @@ static void setup_buffer_highlighting(EditorConfig *cfg, Buffer *buf) {
     buf->config.auto_indentation = ftc->auto_indentation;
     buf->config.expand_tab = ftc->expand_tab;
 
+    highlight_cache_free(buf->highlight_cache);
+    buf->highlight_cache = NULL;
     if (!ftc->syntax_highlighting || ftc->rule_count == 0) return;
 
     SyntaxHighlighter *h = syntax_highlighter_new(ftc->syntax_rules,
@@ -112,10 +116,19 @@ Editor *editor_new(FileInfo *files, int file_count, SplitMode split_mode) {
     ed->config = config_load(NULL);
     if (ed->config) {
         for (int i = 0; i < ed->buffer_count; i++)
-            setup_buffer_highlighting(ed->config, ed->buffer_registry[i]);
+            setup_buffer_highlighting(ed->config, ed->buffer_registry[i], NULL);
     }
 
     return ed;
+}
+
+void editor_apply_forced_highlighting(Editor *ed, const char *file_type) {
+    if (!ed || !file_type) return;
+    free(ed->forced_file_type);
+    ed->forced_file_type = xstrdup(file_type);
+    if (!ed->config) return;
+    for (int i = 0; i < ed->buffer_count; i++)
+        setup_buffer_highlighting(ed->config, ed->buffer_registry[i], file_type);
 }
 
 void editor_free(Editor *ed) {
@@ -129,6 +142,7 @@ void editor_free(Editor *ed) {
     clipboard_free(ed->clipboard);
     history_free(ed->history);
     config_free(ed->config);
+    free(ed->forced_file_type);
     file_watcher_free(ed->watcher);
     if (ed->owns_screen)
         ncurses_screen_free(ed->screen);

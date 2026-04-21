@@ -57,7 +57,8 @@ typedef struct Editor {
     EditorConfig       *config;
     FileWatcherVTable  *watcher;
 
-    bool read_only; /* set via -r flag; blocks all mutations */
+    bool  read_only;        /* set via -r flag; blocks all mutations */
+    char *forced_file_type; /* set via -e/-ext flag; overrides extension detection */
 } Editor;
 
 /* Create editor for testing (no screen init, mock-friendly). */
@@ -112,6 +113,9 @@ void editor_update_widget_matches(Editor *ed);
 /* Autocomplete operations. */
 void editor_trigger_autocomplete(Editor *ed);
 void editor_accept_autocomplete(Editor *ed);
+
+/* Force syntax highlighting for all buffers regardless of filename extension. */
+void editor_apply_forced_highlighting(Editor *ed, const char *file_type);
 
 /* File watching. */
 void editor_check_file_changes(Editor *ed);
