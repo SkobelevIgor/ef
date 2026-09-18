@@ -54,7 +54,7 @@ short theme_syntax_pair(short fg_color) {
     if (syntax_pair_count >= MAX_SYNTAX_PAIRS) return 0;
 
     short idx = (short)(SYNTAX_PAIR_BASE + syntax_pair_count);
-    init_pair(idx, fg_color, -1);
+    if (init_pair(idx, fg_color, -1) == ERR) return 0;
     syntax_pair_cache[syntax_pair_count].fg = fg_color;
     syntax_pair_cache[syntax_pair_count].pair = idx;
     syntax_pair_count++;
