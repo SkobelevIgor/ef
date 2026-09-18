@@ -217,6 +217,23 @@ void test_insert_line_before(void) {
     TEST_ASSERT_EQUAL_INT(1, buf->line_lens[1]);
 }
 
+/* --- Range tests --------------------------------------------------------- */
+
+void test_delete_range_negative_end_is_safe(void) {
+    wchar_t *line = malloc(sizeof(wchar_t) * 6);
+    wmemcpy(line, L"hello", 5); line[5] = L'\0';
+    buffer_set_line(buf, 0, line, 5);
+
+    int *dlens, dcount;
+    wchar_t **deleted = buffer_delete_range(buf, -1, -1, -1, -1,
+                                            &dlens, &dcount);
+    TEST_ASSERT_EQUAL_INT(1, dcount);
+    TEST_ASSERT_EQUAL_INT(0, dlens[0]);
+    buffer_free_lines(deleted, dlens, dcount);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(5, buf->line_lens[0]);
+}
+
 /* --- File I/O tests ------------------------------------------------------ */
 
 void test_save_and_load(void) {
@@ -679,6 +696,7 @@ int main(void) {
     RUN_TEST(test_copy_line_out_of_bounds);
     RUN_TEST(test_insert_line_after);
     RUN_TEST(test_insert_line_before);
+    RUN_TEST(test_delete_range_negative_end_is_safe);
     RUN_TEST(test_save_and_load);
     RUN_TEST(test_load_long_line_not_split);
     RUN_TEST(test_load_failure_keeps_buffer_intact);
