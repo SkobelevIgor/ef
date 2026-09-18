@@ -486,6 +486,8 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 }
                 int cx = tlen % al->width;
                 int cy = tlen / al->width + row_off;
+                if (cy >= active_bar_h) cy = active_bar_h - 1;
+                if (cy < 0) cy = 0;
                 move(al->start_y + cy, al->start_x + cx);
             }
             curs_set(1);
