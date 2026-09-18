@@ -296,27 +296,6 @@ void test_cache_miss_then_hit(void) {
     highlight_cache_free(cache); /* Also frees the highlighter */
 }
 
-void test_cache_invalidation(void) {
-    SyntaxRuleConfig rule = {"\\d+", {"blue", true}, 5};
-    SyntaxHighlighter *h = syntax_highlighter_new(&rule, 1);
-    HighlightCache *cache = highlight_cache_new(h);
-
-    wchar_t *line = L"x = 42";
-    int count;
-    highlight_cache_get_tokens(cache, 0, line, wcslen(line), &count);
-    TEST_ASSERT_EQUAL(1, count);
-
-    /* Invalidate and re-query with different content */
-    highlight_cache_invalidate(cache, 0);
-    wchar_t *line2 = L"hello";
-    const SyntaxToken *t = highlight_cache_get_tokens(cache, 0, line2,
-                                                       wcslen(line2), &count);
-    TEST_ASSERT_EQUAL(0, count);
-    TEST_ASSERT_NULL(t);
-
-    highlight_cache_free(cache);
-}
-
 void test_cache_null_highlighter(void) {
     HighlightCache *cache = highlight_cache_new(NULL);
     int count;
@@ -399,7 +378,6 @@ int main(void) {
 
     /* cache */
     RUN_TEST(test_cache_miss_then_hit);
-    RUN_TEST(test_cache_invalidation);
     RUN_TEST(test_cache_null_highlighter);
     RUN_TEST(test_cache_multiple_lines);
 

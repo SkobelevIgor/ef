@@ -285,14 +285,3 @@ const SyntaxToken *highlight_cache_get_tokens(HighlightCache *c,
     *out_count = cl->token_count;
     return cl->tokens;
 }
-
-void highlight_cache_invalidate(HighlightCache *c, int line_idx) {
-    if (!c || line_idx >= c->capacity) return;
-    c->lines[line_idx].valid = false;
-}
-
-void highlight_cache_invalidate_all(HighlightCache *c) {
-    if (!c) return;
-    for (int i = 0; i < c->capacity; i++)
-        c->lines[i].valid = false;
-}

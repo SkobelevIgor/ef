@@ -38,9 +38,6 @@ const SyntaxToken *highlight_cache_get_tokens(HighlightCache *c,
                                                int line_len,
                                                int *out_count);
 
-void highlight_cache_invalidate(HighlightCache *c, int line_idx);
-void highlight_cache_invalidate_all(HighlightCache *c);
-
 /* Find token covering the given column. Returns NULL if none. */
 const SyntaxToken *syntax_token_at(const SyntaxToken *tokens, int count,
                                     int col);
