@@ -135,7 +135,7 @@ int main(int argc, char *argv[]) {
 
     Editor *ed = editor_new(files, nargs, split);
     if (!ed) {
-        fprintf(stderr, "Error: failed to initialize editor\n");
+        fprintf(stderr, "ef: failed to initialize editor (file is not valid text in the current locale?)\n");
         for (int i = 0; i < nargs; i++) free(files[i].filename);
         free(files);
         return 1;
