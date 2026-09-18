@@ -315,9 +315,9 @@ static void handle_op_dd(Editor *ed, int count) {
         c->old_text = buffer_copy_lines(deleted, del_lens, actual,
                                         &c->old_text_lens);
         c->old_text_count = actual;
-        c->text = buffer_copy_lines(buf->lines, buf->line_lens, 1,
-                                    &c->text_lens);
-        c->text_count = 1;
+        c->text = buffer_copy_lines(buf->lines, buf->line_lens,
+                                    buf->line_count, &c->text_lens);
+        c->text_count = buf->line_count;
         history_push(ed->history, c);
     } else {
         history_record_delete_lines(ed->history, buf, start_row,

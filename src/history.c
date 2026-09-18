@@ -151,6 +151,7 @@ void history_commit_session(History *h, wchar_t **current_lines,
         h->session_lines = NULL;
         h->session_line_lens = NULL;
         h->session_line_count = 0;
+        h->in_session = false;
         history_push(h, c);
     }
 

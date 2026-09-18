@@ -145,6 +145,20 @@ void buffer_splice_lines(Buffer *buf, int start, int delete_count,
 
 /* --- File I/O ------------------------------------------------------------ */
 
+/* Convert one NUL-terminated line to wide chars. Returns NULL if the
+   bytes cannot be decoded or contain an embedded NUL. */
+static wchar_t *decode_line(const char *mb_buf, size_t mb_len, int *wlen_out) {
+    size_t wlen = mbstowcs(NULL, mb_buf, 0);
+    if (wlen == (size_t)-1 || strlen(mb_buf) != mb_len) return NULL;
+    wchar_t *wline = xmalloc(sizeof(wchar_t) * (wlen + 1));
+    if (wlen > 0) {
+        mbstowcs(wline, mb_buf, wlen + 1);
+    }
+    wline[wlen] = L'\0';
+    *wlen_out = (int)wlen;
+    return wline;
+}
+
 static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out,
                            bool *trailing_newline) {
     wchar_t **lines = NULL;
@@ -166,18 +180,13 @@ static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out,
             mb_buf[--mb_len] = '\0';
         }
 
-        /* Convert to wide chars */
-        size_t wlen = mbstowcs(NULL, mb_buf, 0);
-        if (wlen == (size_t)-1 || strlen(mb_buf) != mb_len) {
+        int wlen;
+        wchar_t *wline = decode_line(mb_buf, mb_len, &wlen);
+        if (!wline) {
             free(mb_buf);
             buffer_free_lines(lines, lens, count);
             return -1;
         }
-        wchar_t *wline = xmalloc(sizeof(wchar_t) * (wlen + 1));
-        if (wlen > 0) {
-            mbstowcs(wline, mb_buf, wlen + 1);
-        }
-        wline[wlen] = L'\0';
 
         if (count >= alloc) {
             alloc = alloc == 0 ? 16 : alloc * 2;
@@ -185,7 +194,7 @@ static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out,
             lens = xrealloc(lens, sizeof(int) * alloc);
         }
         lines[count] = wline;
-        lens[count] = (int)wlen;
+        lens[count] = wlen;
         count++;
     }
     free(mb_buf);
@@ -193,13 +202,6 @@ static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out,
     if (ferror(f)) {
         buffer_free_lines(lines, lens, count);
         return -1;
-    }
-    if (count == 0) {
-        lines = xmalloc(sizeof(wchar_t *));
-        lens = xmalloc(sizeof(int));
-        lines[0] = xwcsdup(L"", 0);
-        lens[0] = 0;
-        count = 1;
     }
     *lines_out = lines;
     *lens_out = lens;
@@ -221,6 +223,14 @@ int buffer_load(Buffer *buf) {
     free(lines);
     free(lens);
     buf->trailing_newline = trailing_newline;
+
+    if (buf->line_count == 0) {
+        buffer_ensure_lines(buf, 1);
+        buf->lines[0] = xwcsdup(L"", 0);
+        buf->line_lens[0] = 0;
+        buf->line_caps[0] = 1;
+        buf->line_count = 1;
+    }
 
     struct stat st;
     if (stat(buf->filename, &st) == 0) {
