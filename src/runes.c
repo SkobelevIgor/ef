@@ -5,6 +5,11 @@
 #include <string.h>
 #include <wctype.h>
 
+int rune_width(wchar_t ch) {
+    int w = wcwidth(ch);
+    return w < 0 ? 1 : w;
+}
+
 int visual_column(const wchar_t *line, int line_len, int char_col, int tab_stop) {
     if (tab_stop <= 0) tab_stop = DEFAULT_TAB_STOP;
     int vis = 0;
@@ -13,7 +18,7 @@ int visual_column(const wchar_t *line, int line_len, int char_col, int tab_stop)
         if (line[i] == L'\t') {
             vis += tab_stop - (vis % tab_stop);
         } else {
-            vis++;
+            vis += rune_width(line[i]);
         }
     }
     return vis;

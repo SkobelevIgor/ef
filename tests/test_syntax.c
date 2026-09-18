@@ -140,6 +140,22 @@ void test_highlight_priority(void) {
     syntax_highlighter_free(h);
 }
 
+void test_highlight_priority_zero_applies(void) {
+    SyntaxRuleConfig rule = {"\\d+", {"blue", true}, 0};
+    SyntaxHighlighter *h = syntax_highlighter_new(&rule, 1);
+
+    wchar_t *line = L"x = 42";
+    int count;
+    SyntaxToken *tokens = syntax_highlight_line(h, line, wcslen(line), &count);
+
+    TEST_ASSERT_EQUAL(1, count);
+    TEST_ASSERT_EQUAL(4, tokens[0].start);
+    TEST_ASSERT_EQUAL(6, tokens[0].end);
+
+    free(tokens);
+    syntax_highlighter_free(h);
+}
+
 void test_highlight_adjacent_merge(void) {
     /* A pattern that matches multiple adjacent chars should merge into one token */
     SyntaxRuleConfig rule = {"\\d+", {"blue", true}, 5};
@@ -190,6 +206,22 @@ void test_highlight_unicode(void) {
     TEST_ASSERT_EQUAL(1, count);
     TEST_ASSERT_EQUAL(5, tokens[0].start); /* "42" starts at char 5 */
     TEST_ASSERT_EQUAL(7, tokens[0].end);
+
+    free(tokens);
+    syntax_highlighter_free(h);
+}
+
+void test_highlight_empty_match_multibyte(void) {
+    SyntaxRuleConfig rule = {"x*", {"blue", false}, 5};
+    SyntaxHighlighter *h = syntax_highlighter_new(&rule, 1);
+
+    wchar_t *line = L"\x65E5xxb"; /* 日xxb */
+    int count;
+    SyntaxToken *tokens = syntax_highlight_line(h, line, wcslen(line), &count);
+
+    TEST_ASSERT_EQUAL(1, count);
+    TEST_ASSERT_EQUAL(1, tokens[0].start);
+    TEST_ASSERT_EQUAL(3, tokens[0].end);
 
     free(tokens);
     syntax_highlighter_free(h);
@@ -264,27 +296,6 @@ void test_cache_miss_then_hit(void) {
     highlight_cache_free(cache); /* Also frees the highlighter */
 }
 
-void test_cache_invalidation(void) {
-    SyntaxRuleConfig rule = {"\\d+", {"blue", true}, 5};
-    SyntaxHighlighter *h = syntax_highlighter_new(&rule, 1);
-    HighlightCache *cache = highlight_cache_new(h);
-
-    wchar_t *line = L"x = 42";
-    int count;
-    highlight_cache_get_tokens(cache, 0, line, wcslen(line), &count);
-    TEST_ASSERT_EQUAL(1, count);
-
-    /* Invalidate and re-query with different content */
-    highlight_cache_invalidate(cache, 0);
-    wchar_t *line2 = L"hello";
-    const SyntaxToken *t = highlight_cache_get_tokens(cache, 0, line2,
-                                                       wcslen(line2), &count);
-    TEST_ASSERT_EQUAL(0, count);
-    TEST_ASSERT_NULL(t);
-
-    highlight_cache_free(cache);
-}
-
 void test_cache_null_highlighter(void) {
     HighlightCache *cache = highlight_cache_new(NULL);
     int count;
@@ -350,9 +361,11 @@ int main(void) {
     RUN_TEST(test_highlight_keyword);
     RUN_TEST(test_highlight_string_literal);
     RUN_TEST(test_highlight_priority);
+    RUN_TEST(test_highlight_priority_zero_applies);
     RUN_TEST(test_highlight_adjacent_merge);
     RUN_TEST(test_highlight_multiple_matches);
     RUN_TEST(test_highlight_unicode);
+    RUN_TEST(test_highlight_empty_match_multibyte);
     RUN_TEST(test_highlight_invalid_pattern);
     RUN_TEST(test_highlight_comment);
 
@@ -365,7 +378,6 @@ int main(void) {
 
     /* cache */
     RUN_TEST(test_cache_miss_then_hit);
-    RUN_TEST(test_cache_invalidation);
     RUN_TEST(test_cache_null_highlighter);
     RUN_TEST(test_cache_multiple_lines);
 

@@ -110,12 +110,23 @@ void calc_cursor_screen_pos(wchar_t **lines, const int *line_lens,
     }
 }
 
+/* --- Cell helpers -------------------------------------------------------- */
+
+static void set_cell(cchar_t *cc, wchar_t ch, attr_t attr, short pair) {
+    wchar_t wch[2] = {ch, L'\0'};
+    if (setcchar(cc, wch, attr, pair, NULL) == ERR) {
+        wch[0] = L'?';
+        setcchar(cc, wch, attr, pair, NULL);
+    }
+}
+
 /* --- Widget bar rendering ------------------------------------------------ */
 
 static int render_widget_bar(const wchar_t *text, int text_len,
                              int start_x, int start_y, int width,
-                             int color_pair) {
+                             int max_rows, int color_pair) {
     int rows = calculate_bar_rows(text, text_len, width);
+    if (rows > max_rows) rows = max_rows;
     attron(COLOR_PAIR(color_pair));
     for (int r = 0; r < rows; r++)
         for (int c = 0; c < width; c++)
@@ -126,8 +137,7 @@ static int render_widget_bar(const wchar_t *text, int text_len,
         if (x >= width) { x = 0; y++; }
         if (y < rows) {
             cchar_t cc;
-            wchar_t wch[2] = {text[i], L'\0'};
-            setcchar(&cc, wch, A_NORMAL, color_pair, NULL);
+            set_cell(&cc, text[i], A_NORMAL, color_pair);
             mvadd_wch(start_y + y, start_x + x, &cc);
             x++;
         }
@@ -137,7 +147,8 @@ static int render_widget_bar(const wchar_t *text, int text_len,
 }
 
 static int render_widget_in_pane(const WidgetState *w,
-                                 int start_x, int start_y, int width) {
+                                 int start_x, int start_y, int width,
+                                 int max_rows) {
     if (!w || !w->active) return 0;
     WidgetSession *s = widget_current_session((WidgetState *)w);
     int total = 0;
@@ -145,14 +156,15 @@ static int render_widget_in_pane(const WidgetState *w,
     if (w->kind == WIDGET_SEARCH && s) {
         int pair = s->no_matches ? PAIR_SEARCH_BAR_NOMATCH : PAIR_SEARCH_BAR;
         total += render_widget_bar(s->query, s->query_len,
-                                   start_x, start_y, width, pair);
+                                   start_x, start_y, width, max_rows, pair);
     } else if (w->kind == WIDGET_FIND_REPLACE && s) {
         int fp = s->no_matches ? PAIR_SEARCH_BAR_NOMATCH : PAIR_SEARCH_BAR;
         total += render_widget_bar(s->query, s->query_len,
-                                   start_x, start_y, width, fp);
+                                   start_x, start_y, width, max_rows, fp);
         int rp = s->no_matches ? PAIR_REPLACE_BAR_NOMATCH : PAIR_REPLACE_BAR;
         total += render_widget_bar(s->replace_text, s->replace_len,
-                                   start_x, start_y + total, width, rp);
+                                   start_x, start_y + total, width,
+                                   max_rows - total, rp);
     }
     return total;
 }
@@ -173,7 +185,8 @@ static bool is_in_match(const SearchMatch *matches, int count,
 /* --- Autocomplete dropdown ----------------------------------------------- */
 
 static void render_autocomplete(AutocompleteState *ac,
-                                 int cursor_x, int cursor_y, int max_y) {
+                                 int cursor_x, int cursor_y,
+                                 int min_y, int max_y) {
     if (!ac || !ac->active || ac->suggestion_count == 0) return;
 
     int max_w = 0;
@@ -185,26 +198,29 @@ static void render_autocomplete(AutocompleteState *ac,
     int drop_w = max_w + pad * 2;
     int drop_h = ac->suggestion_count;
     int space_below = max_y - cursor_y - 1;
+    int space_above = cursor_y - min_y;
     int start_y;
 
     if (space_below >= drop_h) {
         start_y = cursor_y + 1;
-    } else if (cursor_y >= drop_h) {
+    } else if (space_above >= drop_h) {
         start_y = cursor_y - drop_h;
-    } else if (space_below > cursor_y) {
+    } else if (space_below > space_above) {
         start_y = cursor_y + 1;
         drop_h = space_below;
     } else {
-        drop_h = cursor_y;
-        start_y = 0;
+        drop_h = space_above;
+        start_y = cursor_y - drop_h;
     }
     if (drop_h <= 0) return;
 
     int display = drop_h < ac->suggestion_count ? drop_h : ac->suggestion_count;
+    int offset = ac->selected_idx - display + 1;
+    if (offset < 0) offset = 0;
 
     for (int i = 0; i < display; i++) {
         int y = start_y + i;
-        bool selected = (i == ac->selected_idx);
+        bool selected = (i + offset == ac->selected_idx);
         int pair = selected ? PAIR_AUTOCOMPLETE_SELECTED
                             : PAIR_AUTOCOMPLETE_NORMAL;
         attron(COLOR_PAIR(pair));
@@ -214,16 +230,16 @@ static void render_autocomplete(AutocompleteState *ac,
             mvaddch(y, cursor_x + p, ' ');
 
         /* Word */
+        const Suggestion *sug = &ac->suggestions[i + offset];
         int x = cursor_x + pad;
-        for (int c = 0; c < ac->suggestions[i].word_len; c++) {
+        for (int c = 0; c < sug->word_len; c++) {
             cchar_t cc;
-            wchar_t wch[2] = {ac->suggestions[i].word[c], L'\0'};
-            setcchar(&cc, wch, A_NORMAL, pair, NULL);
+            set_cell(&cc, sug->word[c], A_NORMAL, pair);
             mvadd_wch(y, x + c, &cc);
         }
 
         /* Right padding */
-        int filled = pad + ac->suggestions[i].word_len;
+        int filled = pad + sug->word_len;
         for (int p = filled; p < drop_w; p++)
             mvaddch(y, cursor_x + p, ' ');
 
@@ -278,7 +294,8 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
         int bar_h = 0;
         if (pane_has_active_widget(pane)) {
             bar_h = render_widget_in_pane(pane->widget,
-                                          lay->start_x, pane_y, lay->width);
+                                          lay->start_x, pane_y, lay->width,
+                                          lay->height - 1);
             pane_y += bar_h;
             pane_h -= bar_h;
             if (pane_h < 1) pane_h = 1;
@@ -359,14 +376,15 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
 
             /* Draw text with wrapping */
             int char_idx = 0;
+            int vis = 0;
             bool first_wrap = true;
             while (char_idx < buf->line_lens[line_idx]
                    && screen_row < pane_h) {
                 if (!first_wrap) {
                     /* Wrap indicator */
-                    char wrap_buf[16];
-                    snprintf(wrap_buf, sizeof(wrap_buf), "%*s ",
-                             ln_w - 1, "\xe2\x86\xaa"); /* ↪ in UTF-8 */
+                    char wrap_buf[80];
+                    snprintf(wrap_buf, sizeof(wrap_buf), "%*s\xe2\x86\xaa ",
+                             ln_w - 2, ""); /* ↪ in UTF-8 */
                     int wp = is_current ? cur_ln_pair : PAIR_WRAP_INDIC;
                     attron(COLOR_PAIR(wp));
                     mvaddstr(pane_y + screen_row, lay->start_x, wrap_buf);
@@ -377,9 +395,9 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 int tab_stop = buf->config.tab_stop;
                 if (tab_stop <= 0) tab_stop = DEFAULT_TAB_STOP;
 
-                int col = 0;
+                int wrap_row = vis / text_w;
                 int text_x = lay->start_x + ln_w;
-                while (col < text_w
+                while (vis / text_w == wrap_row
                        && char_idx < buf->line_lens[line_idx]) {
                     wchar_t ch = buf->lines[line_idx][char_idx];
 
@@ -409,20 +427,21 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                     }
 
                     if (ch == L'\t') {
-                        int spaces = tab_stop - (col % tab_stop);
-                        for (int s = 0; s < spaces && col < text_w; s++) {
+                        int spaces = tab_stop - (vis % tab_stop);
+                        int s;
+                        for (s = 0; s < spaces && vis / text_w == wrap_row; s++) {
                             mvaddch(pane_y + screen_row,
-                                    text_x + col,
+                                    text_x + vis % text_w,
                                     ' ' | char_attr | COLOR_PAIR(char_pair));
-                            col++;
+                            vis++;
                         }
+                        if (s < spaces) break;
                     } else {
                         cchar_t cc;
-                        wchar_t wch[2] = {ch, L'\0'};
-                        setcchar(&cc, wch, char_attr, char_pair, NULL);
+                        set_cell(&cc, ch, char_attr, char_pair);
                         mvadd_wch(pane_y + screen_row,
-                                  text_x + col, &cc);
-                        col++;
+                                  text_x + vis % text_w, &cc);
+                        vis += rune_width(ch);
                     }
                     char_idx++;
                 }
@@ -467,6 +486,8 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 }
                 int cx = tlen % al->width;
                 int cy = tlen / al->width + row_off;
+                if (cy >= active_bar_h) cy = active_bar_h - 1;
+                if (cy < 0) cy = 0;
                 move(al->start_y + cy, al->start_x + cx);
             }
             curs_set(1);
@@ -490,7 +511,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 render_autocomplete(input->autocomplete,
                                     al->start_x + cx,
                                     al->start_y + active_bar_h + cy,
-                                    pane_max_y);
+                                    al->start_y + active_bar_h, pane_max_y);
                 /* Restore cursor after overlay */
                 move(al->start_y + active_bar_h + cy, al->start_x + cx);
             }
@@ -504,9 +525,8 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
 static int ncurses_poll_event(void *self, EditorEvent *ev) {
     NcursesScreen *ns = (NcursesScreen *)self;
     timeout(1000);
-    wint_t wch;
+    wint_t wch = 0;
     int rc = wget_wch(stdscr, &wch);
-    ev->key = (int)wch;
     ev->is_paste = false;
 
     if (rc == ERR) {
@@ -515,8 +535,9 @@ static int ncurses_poll_event(void *self, EditorEvent *ev) {
         ev->is_char = false;
         return 0;
     }
+    ev->key = (int)wch;
 
-    if (ev->key == KEY_RESIZE) {
+    if (rc == KEY_CODE_YES && ev->key == KEY_RESIZE) {
         ev->type = EV_RESIZE;
         ev->is_char = false;
         return 0;

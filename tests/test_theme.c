@@ -45,6 +45,12 @@ void test_pair_readonly_linenum_is_distinct(void) {
     TEST_ASSERT_NOT_EQUAL(PAIR_READONLY_LINENUM, PAIR_LINE_NUM);
 }
 
+/* Without initscr(), init_pair fails; the fallback must be pair 0 */
+void test_syntax_pair_falls_back_when_init_pair_fails(void) {
+    TEST_ASSERT_EQUAL(0, theme_syntax_pair(1));
+    TEST_ASSERT_EQUAL(0, theme_syntax_pair(1));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_gutter_current_line_pair_active_normal);
@@ -54,5 +60,6 @@ int main(void) {
     RUN_TEST(test_gutter_current_line_pair_inactive_insert);
     RUN_TEST(test_gutter_current_line_pair_inactive_visual);
     RUN_TEST(test_pair_readonly_linenum_is_distinct);
+    RUN_TEST(test_syntax_pair_falls_back_when_init_pair_fails);
     return UNITY_END();
 }

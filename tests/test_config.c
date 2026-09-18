@@ -173,6 +173,60 @@ void test_free_null(void) {
     config_free(NULL); /* Should not crash */
 }
 
+void test_file_types_array_is_skipped(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_ftarray_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "{\"file_types\":[{\"extensions\":[\".go\"]}]}");
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(0, cfg->file_type_count);
+    TEST_ASSERT_NULL(config_get_file_type(cfg, "go"));
+    TEST_ASSERT_NULL(config_detect_file_type(cfg, "main.go"));
+
+    unlink(path);
+    config_free(cfg);
+}
+
+void test_empty_arrays_leave_pointers_null(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_emptyarr_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "{\"file_types\":{\"x\":{\"extensions\":[],\"syntax_rules\":[]}}}");
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    const EditorFileTypeConfig *x = config_get_file_type(cfg, "x");
+    TEST_ASSERT_NOT_NULL(x);
+    TEST_ASSERT_EQUAL(0, x->ext_count);
+    TEST_ASSERT_NULL(x->extensions);
+    TEST_ASSERT_EQUAL(0, x->rule_count);
+    TEST_ASSERT_NULL(x->syntax_rules);
+
+    unlink(path);
+    config_free(cfg);
+}
+
+void test_empty_file_types_leaves_pointers_null(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_emptyft_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "{\"file_types\":{}}");
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(0, cfg->file_type_count);
+    TEST_ASSERT_NULL(cfg->file_types);
+    TEST_ASSERT_NULL(cfg->file_type_names);
+
+    unlink(path);
+    config_free(cfg);
+}
+
 /* --- Trailing comma tolerance -------------------------------------------- */
 
 static const char *TRAILING_COMMA_CONFIG =
@@ -296,6 +350,21 @@ void test_ensure_default_creates_file(void) {
     EditorConfig *cfg = config_load(path);
     TEST_ASSERT_NOT_NULL(cfg);
     TEST_ASSERT_GREATER_THAN(0, cfg->file_type_count);
+    config_free(cfg);
+    unlink(path);
+}
+
+void test_ensure_default_contains_yaml(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_ensure_yaml_%d.json", getpid());
+    unlink(path);
+    TEST_ASSERT_TRUE(config_ensure_default(path));
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    const EditorFileTypeConfig *yaml = config_get_file_type(cfg, "yaml");
+    TEST_ASSERT_NOT_NULL(yaml);
+    TEST_ASSERT_EQUAL_STRING("yaml", config_detect_file_type(cfg, "a.yml"));
     config_free(cfg);
     unlink(path);
 }
@@ -424,10 +493,14 @@ int main(void) {
     RUN_TEST(test_detect_null_args);
     RUN_TEST(test_get_unknown_type);
     RUN_TEST(test_free_null);
+    RUN_TEST(test_file_types_array_is_skipped);
+    RUN_TEST(test_empty_arrays_leave_pointers_null);
+    RUN_TEST(test_empty_file_types_leaves_pointers_null);
     RUN_TEST(test_load_trailing_comma_in_object);
     RUN_TEST(test_load_trailing_comma_in_array);
     RUN_TEST(test_load_comma_in_string_preserved);
     RUN_TEST(test_ensure_default_creates_file);
+    RUN_TEST(test_ensure_default_contains_yaml);
     RUN_TEST(test_ensure_default_skips_existing);
     RUN_TEST(test_ensure_default_null_uses_home);
     RUN_TEST(test_ensure_default_bad_path);

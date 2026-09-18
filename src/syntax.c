@@ -4,6 +4,7 @@
 #include "syntax.h"
 #include "xalloc.h"
 
+#include <limits.h>
 #include <ncurses.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,7 +86,8 @@ struct SyntaxHighlighter {
 SyntaxHighlighter *syntax_highlighter_new(const SyntaxRuleConfig *rules,
                                            int rule_count) {
     SyntaxHighlighter *h = xcalloc(1, sizeof(SyntaxHighlighter));
-    h->rules = xcalloc(rule_count, sizeof(CompiledRule));
+    if (rule_count > 0)
+        h->rules = xcalloc(rule_count, sizeof(CompiledRule));
 
     for (int i = 0; i < rule_count; i++) {
         int errorcode;
@@ -129,8 +131,11 @@ SyntaxToken *syntax_highlight_line(SyntaxHighlighter *h,
     char *utf8 = wcs_to_utf8_mapped(line, line_len, &byte_len, &b2c);
 
     int *rule_indices = xmalloc(line_len * sizeof(int));
-    int *priorities = xcalloc(line_len, sizeof(int));
-    for (int i = 0; i < line_len; i++) rule_indices[i] = -1;
+    int *priorities = xmalloc(line_len * sizeof(int));
+    for (int i = 0; i < line_len; i++) {
+        rule_indices[i] = -1;
+        priorities[i] = INT_MIN;
+    }
 
     pcre2_match_data *md = pcre2_match_data_create(16, NULL);
 
@@ -153,7 +158,12 @@ SyntaxToken *syntax_highlight_line(SyntaxHighlighter *h,
             }
 
             offset = ov[1];
-            if (ov[1] == ov[0]) offset++;
+            if (ov[1] == ov[0]) {
+                offset++;
+                while (offset < (PCRE2_SIZE)byte_len
+                       && ((unsigned char)utf8[offset] & 0xC0) == 0x80)
+                    offset++;
+            }
         }
     }
 
@@ -274,15 +284,4 @@ const SyntaxToken *highlight_cache_get_tokens(HighlightCache *c,
     cl->valid = true;
     *out_count = cl->token_count;
     return cl->tokens;
-}
-
-void highlight_cache_invalidate(HighlightCache *c, int line_idx) {
-    if (!c || line_idx >= c->capacity) return;
-    c->lines[line_idx].valid = false;
-}
-
-void highlight_cache_invalidate_all(HighlightCache *c) {
-    if (!c) return;
-    for (int i = 0; i < c->capacity; i++)
-        c->lines[i].valid = false;
 }
