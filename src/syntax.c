@@ -86,7 +86,8 @@ struct SyntaxHighlighter {
 SyntaxHighlighter *syntax_highlighter_new(const SyntaxRuleConfig *rules,
                                            int rule_count) {
     SyntaxHighlighter *h = xcalloc(1, sizeof(SyntaxHighlighter));
-    h->rules = xcalloc(rule_count, sizeof(CompiledRule));
+    if (rule_count > 0)
+        h->rules = xcalloc(rule_count, sizeof(CompiledRule));
 
     for (int i = 0; i < rule_count; i++) {
         int errorcode;

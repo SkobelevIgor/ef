@@ -190,6 +190,43 @@ void test_file_types_array_is_skipped(void) {
     config_free(cfg);
 }
 
+void test_empty_arrays_leave_pointers_null(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_emptyarr_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "{\"file_types\":{\"x\":{\"extensions\":[],\"syntax_rules\":[]}}}");
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    const EditorFileTypeConfig *x = config_get_file_type(cfg, "x");
+    TEST_ASSERT_NOT_NULL(x);
+    TEST_ASSERT_EQUAL(0, x->ext_count);
+    TEST_ASSERT_NULL(x->extensions);
+    TEST_ASSERT_EQUAL(0, x->rule_count);
+    TEST_ASSERT_NULL(x->syntax_rules);
+
+    unlink(path);
+    config_free(cfg);
+}
+
+void test_empty_file_types_leaves_pointers_null(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_emptyft_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "{\"file_types\":{}}");
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(0, cfg->file_type_count);
+    TEST_ASSERT_NULL(cfg->file_types);
+    TEST_ASSERT_NULL(cfg->file_type_names);
+
+    unlink(path);
+    config_free(cfg);
+}
+
 /* --- Trailing comma tolerance -------------------------------------------- */
 
 static const char *TRAILING_COMMA_CONFIG =
@@ -457,6 +494,8 @@ int main(void) {
     RUN_TEST(test_get_unknown_type);
     RUN_TEST(test_free_null);
     RUN_TEST(test_file_types_array_is_skipped);
+    RUN_TEST(test_empty_arrays_leave_pointers_null);
+    RUN_TEST(test_empty_file_types_leaves_pointers_null);
     RUN_TEST(test_load_trailing_comma_in_object);
     RUN_TEST(test_load_trailing_comma_in_array);
     RUN_TEST(test_load_comma_in_string_preserved);
