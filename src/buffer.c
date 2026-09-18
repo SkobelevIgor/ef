@@ -538,8 +538,14 @@ void buffer_insert_line_before(Buffer *buf, int row, wchar_t *line, int line_len
 static void clamp_range(const Buffer *buf, int *sr, int *sc, int *er, int *ec) {
     if (*sr < 0) *sr = 0;
     if (*er < 0) *er = 0;
-    if (*sr >= buf->line_count) *sr = buf->line_count - 1;
-    if (*er >= buf->line_count) *er = buf->line_count - 1;
+    if (*sr >= buf->line_count) {
+        *sr = buf->line_count - 1;
+        *sc = buf->line_lens[*sr];
+    }
+    if (*er >= buf->line_count) {
+        *er = buf->line_count - 1;
+        *ec = buf->line_lens[*er];
+    }
     if (*sc < 0) *sc = 0;
     if (*ec < 0) *ec = 0;
     if (*sc > buf->line_lens[*sr]) *sc = buf->line_lens[*sr];
