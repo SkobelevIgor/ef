@@ -511,7 +511,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 render_autocomplete(input->autocomplete,
                                     al->start_x + cx,
                                     al->start_y + active_bar_h + cy,
-                                    al->start_y, pane_max_y);
+                                    al->start_y + active_bar_h, pane_max_y);
                 /* Restore cursor after overlay */
                 move(al->start_y + active_bar_h + cy, al->start_x + cx);
             }
