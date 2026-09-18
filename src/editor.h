@@ -58,7 +58,6 @@ typedef struct Editor {
     FileWatcherVTable  *watcher;
 
     bool  read_only;        /* set via -r flag; blocks all mutations */
-    char *forced_file_type; /* set via -e/-ext flag; overrides extension detection */
 } Editor;
 
 /* Create editor for testing (no screen init, mock-friendly). */

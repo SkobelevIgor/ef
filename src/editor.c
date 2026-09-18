@@ -123,10 +123,7 @@ Editor *editor_new(FileInfo *files, int file_count, SplitMode split_mode) {
 }
 
 void editor_apply_forced_highlighting(Editor *ed, const char *file_type) {
-    if (!ed || !file_type) return;
-    free(ed->forced_file_type);
-    ed->forced_file_type = xstrdup(file_type);
-    if (!ed->config) return;
+    if (!ed || !file_type || !ed->config) return;
     for (int i = 0; i < ed->buffer_count; i++)
         setup_buffer_highlighting(ed->config, ed->buffer_registry[i], file_type);
 }
@@ -142,7 +139,6 @@ void editor_free(Editor *ed) {
     clipboard_free(ed->clipboard);
     history_free(ed->history);
     config_free(ed->config);
-    free(ed->forced_file_type);
     file_watcher_free(ed->watcher);
     if (ed->owns_screen)
         ncurses_screen_free(ed->screen);

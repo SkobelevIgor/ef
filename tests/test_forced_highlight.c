@@ -105,21 +105,6 @@ void test_forced_highlight_sets_file_type(void) {
     TEST_ASSERT_EQUAL_STRING("go", buf->file_type);
 }
 
-/* --- apply stores forced type on editor ---------------------------------- */
-
-void test_forced_highlight_stores_type_on_editor(void) {
-    const wchar_t *lines[] = {L"hello"};
-    test_setup_editor(lines, 1, &ed, &buf);
-    write_tmp_config();
-    ed->config = config_load(tmp_path);
-    remove_tmp_config();
-
-    editor_apply_forced_highlighting(ed, "python");
-
-    TEST_ASSERT_NOT_NULL(ed->forced_file_type);
-    TEST_ASSERT_EQUAL_STRING("python", ed->forced_file_type);
-}
-
 /* --- apply creates highlight_cache for type with rules ------------------- */
 
 void test_forced_highlight_creates_cache(void) {
@@ -177,7 +162,6 @@ void test_forced_highlight_replaces_previous(void) {
     editor_apply_forced_highlighting(ed, "go");
     editor_apply_forced_highlighting(ed, "python");
 
-    TEST_ASSERT_EQUAL_STRING("python", ed->forced_file_type);
     TEST_ASSERT_EQUAL_STRING("python", buf->file_type);
 }
 
@@ -186,7 +170,6 @@ int main(void) {
     RUN_TEST(test_forced_highlight_null_is_noop);
     RUN_TEST(test_forced_highlight_no_config_is_noop);
     RUN_TEST(test_forced_highlight_sets_file_type);
-    RUN_TEST(test_forced_highlight_stores_type_on_editor);
     RUN_TEST(test_forced_highlight_creates_cache);
     RUN_TEST(test_forced_highlight_overrides_extension);
     RUN_TEST(test_forced_highlight_clears_cache_on_no_rules);
