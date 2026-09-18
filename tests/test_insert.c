@@ -380,6 +380,44 @@ void test_map_expansion_with_existing_text(void) {
     TEST_ASSERT_EQUAL_INT(7, editor_active_pane(ed)->cursor_col);
 }
 
+void test_map_cleared_by_cursor_movement(void) {
+    const wchar_t *lines[] = {L"abcdef"};
+    setup_editor(lines, 1);
+    EditorConfig *cfg = calloc(1, sizeof(EditorConfig));
+    cfg->map_count = 1;
+    cfg->maps = calloc(1, sizeof(EditorMapConfig));
+    cfg->maps[0].trigger = strdup("xy");
+    cfg->maps[0].expansion = strdup("ZZ");
+    ed->config = cfg;
+
+    send_char(L'x');
+    test_send_key(ed, KEY_RIGHT);
+    test_send_key(ed, KEY_RIGHT);
+    test_send_key(ed, KEY_RIGHT);
+    send_char(L'y');
+
+    TEST_ASSERT_EQUAL_INT(8, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"xabcydef", 8));
+}
+
+void test_map_cleared_by_backspace(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+    EditorConfig *cfg = calloc(1, sizeof(EditorConfig));
+    cfg->map_count = 1;
+    cfg->maps = calloc(1, sizeof(EditorMapConfig));
+    cfg->maps[0].trigger = strdup("xy");
+    cfg->maps[0].expansion = strdup("ZZ");
+    ed->config = cfg;
+
+    send_char(L'x');
+    send_char(127);
+    send_char(L'y');
+
+    TEST_ASSERT_EQUAL_INT(1, buf->line_lens[0]);
+    TEST_ASSERT_TRUE(buf->lines[0][0] == L'y');
+}
+
 /* --- Paste mode tests ---------------------------------------------------- */
 
 static void send_paste_char(wchar_t ch) {
@@ -548,6 +586,8 @@ int main(void) {
     RUN_TEST(test_map_double_quote_no_infinite_recursion);
     RUN_TEST(test_map_single_quote_no_infinite_recursion);
     RUN_TEST(test_map_expansion_with_existing_text);
+    RUN_TEST(test_map_cleared_by_cursor_movement);
+    RUN_TEST(test_map_cleared_by_backspace);
     /* Paste mode tests */
     RUN_TEST(test_insert_cyrillic_char);
     RUN_TEST(test_paste_inserts_chars);

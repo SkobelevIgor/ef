@@ -67,6 +67,7 @@ static void handle_special_keys(Editor *ed, EditorEvent *ev) {
     Buffer *buf = pane->buffer;
     int height = 0, width = 0;
 
+    input_state_map_clear(ed->input_state);
     switch (ev->key) {
     case KEY_UP:
         dismiss_ac(ed);
@@ -194,6 +195,7 @@ static void handle_char_keys(Editor *ed, wchar_t ch) {
     }
 
     if (ch == KEY_DEL || ch == KEY_BS) { /* Backspace */
+        input_state_map_clear(ed->input_state);
         buffer_delete_char(buf, pane->cursor_row, pane->cursor_col,
                            &pane->cursor_row, &pane->cursor_col);
         editor_schedule_auto_save(ed);
