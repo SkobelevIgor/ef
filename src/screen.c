@@ -429,7 +429,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                         set_cell(&cc, ch, char_attr, char_pair);
                         mvadd_wch(pane_y + screen_row,
                                   text_x + col, &cc);
-                        col++;
+                        col += rune_width(ch);
                     }
                     char_idx++;
                 }

@@ -38,6 +38,18 @@ void test_visual_column_default_tab_stop(void) {
     TEST_ASSERT_EQUAL_INT(4, visual_column(line, 2, 1, 0));
 }
 
+void test_visual_column_wide_chars(void) {
+    const wchar_t *line = L"\x4E2D\x6587" L"abc"; /* 中文abc */
+    TEST_ASSERT_EQUAL_INT(4, visual_column(line, 5, 2, 4));
+    TEST_ASSERT_EQUAL_INT(7, visual_column(line, 5, 5, 4));
+}
+
+void test_visual_column_combining_mark(void) {
+    const wchar_t *line = L"e\x0301" L"x"; /* e + combining acute, x */
+    TEST_ASSERT_EQUAL_INT(1, visual_column(line, 3, 2, 4));
+    TEST_ASSERT_EQUAL_INT(2, visual_column(line, 3, 3, 4));
+}
+
 /* --- visual_line_width tests --------------------------------------------- */
 
 void test_visual_line_width_empty(void) {
@@ -50,6 +62,10 @@ void test_visual_line_width_no_tabs(void) {
 
 void test_visual_line_width_with_tab(void) {
     TEST_ASSERT_EQUAL_INT(5, visual_line_width(L"\tx", 2, 4));
+}
+
+void test_visual_line_width_wide_chars(void) {
+    TEST_ASSERT_EQUAL_INT(5, visual_line_width(L"\x4E2D\x6587" L"a", 3, 4));
 }
 
 /* --- normalize_range tests ----------------------------------------------- */
@@ -184,9 +200,12 @@ int main(void) {
     RUN_TEST(test_visual_column_with_tab_at_start);
     RUN_TEST(test_visual_column_tab_in_middle);
     RUN_TEST(test_visual_column_default_tab_stop);
+    RUN_TEST(test_visual_column_wide_chars);
+    RUN_TEST(test_visual_column_combining_mark);
     RUN_TEST(test_visual_line_width_empty);
     RUN_TEST(test_visual_line_width_no_tabs);
     RUN_TEST(test_visual_line_width_with_tab);
+    RUN_TEST(test_visual_line_width_wide_chars);
     RUN_TEST(test_normalize_range_already_ordered);
     RUN_TEST(test_normalize_range_reversed);
     RUN_TEST(test_normalize_range_same_row_reversed);

@@ -6,6 +6,9 @@
 
 #include "constants.h"
 
+/* RuneWidth returns the number of terminal columns a rune occupies (0, 1 or 2). */
+int rune_width(wchar_t ch);
+
 /* VisualColumn calculates the visual column position accounting for tab expansion. */
 int visual_column(const wchar_t *line, int line_len, int char_col, int tab_stop);
 
