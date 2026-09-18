@@ -177,16 +177,17 @@ void editor_schedule_auto_save(Editor *ed) {
     editor_save_all_modified(ed);
 }
 
-void editor_save_all_modified(Editor *ed) {
-    if (ed->read_only) return;
+bool editor_save_all_modified(Editor *ed) {
+    if (ed->read_only) return true;
+    bool ok = true;
     for (int i = 0; i < ed->buffer_count; i++) {
         Buffer *buf = ed->buffer_registry[i];
-        if (buf->modified) {
-            if (buffer_save(buf) == 0 && ed->watcher && buf->filename)
-                ed->watcher->update_mod_time(
-                    ed->watcher->impl, buf->filename);
-        }
+        if (!buf->modified) continue;
+        if (buffer_save(buf) != 0) { ok = false; continue; }
+        if (ed->watcher && buf->filename)
+            ed->watcher->update_mod_time(ed->watcher->impl, buf->filename);
     }
+    return ok;
 }
 
 /* --- Key handling -------------------------------------------------------- */
@@ -199,8 +200,7 @@ bool editor_handle_key(Editor *ed, EditorEvent *ev) {
 
     /* F10 = quit */
     if (ev->type == EV_KEY && !ev->is_char && ev->key == KEY_F(10)) {
-        if (!ed->read_only) editor_save_all_modified(ed);
-        return true;
+        return ed->read_only || editor_save_all_modified(ed);
     }
 
     /* F3/F4 open widgets from any mode */
@@ -247,14 +247,6 @@ void editor_handle_file_change(Editor *ed, const char *filename) {
     Buffer *buf = find_buffer_by_filename(ed, filename);
     if (!buf) return;
 
-    if (ed->mode == MODE_INSERT) {
-        Buffer *ab = editor_active_buffer(ed);
-        history_commit_session(ed->history,
-                               ab->lines, ab->line_lens,
-                               ab->line_count);
-        ed->mode = MODE_NORMAL;
-    }
-
     Pane *pane = editor_active_pane(ed);
     int *old_lens;
     wchar_t **old = buffer_copy_lines(
@@ -263,12 +255,22 @@ void editor_handle_file_change(Editor *ed, const char *filename) {
     int old_count = buf->line_count;
     int row = pane->cursor_row, col = pane->cursor_col;
 
-    if (buffer_load(buf) != 0) {
+    int rc = buffer_load(buf);
+    if (ed->watcher)
+        ed->watcher->update_mod_time(ed->watcher->impl, filename);
+    if (rc != 0) {
         buffer_free_lines(old, old_lens, old_count);
         return;
     }
-    if (ed->watcher)
-        ed->watcher->update_mod_time(ed->watcher->impl, filename);
+
+    if (ed->mode == MODE_INSERT) {
+        Buffer *ab = editor_active_buffer(ed);
+        history_commit_session(ed->history,
+                               ab == buf ? old : ab->lines,
+                               ab == buf ? old_lens : ab->line_lens,
+                               ab == buf ? old_count : ab->line_count);
+        ed->mode = MODE_NORMAL;
+    }
 
     Change *c = change_new(CHANGE_REPLACE, buf, row, col);
     c->text = buffer_copy_lines(

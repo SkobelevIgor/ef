@@ -189,22 +189,27 @@ void test_failed_save_keeps_external_change_detectable(void) {
     TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"external", 8));
 }
 
-void test_failed_reload_is_retried(void) {
+void test_failed_reload_keeps_mode_and_is_not_repolled(void) {
     setup_editor_with_file("hello\n");
     Buffer *buf = editor_active_buffer(ed);
+    test_send_char(ed, L'i');
+    TEST_ASSERT_EQUAL_INT(MODE_INSERT, ed->mode);
 
     FILE *f = fopen(tmppath, "w");
-    fprintf(f, "external\n");
+    fputs("\xff\xfe\n", f);
     fclose(f);
-    chmod(tmppath, 0000);
 
     editor_check_file_changes(ed);
     TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"hello", 5));
+    TEST_ASSERT_EQUAL_INT(MODE_INSERT, ed->mode);
+    TEST_ASSERT_NULL(ed->watcher->check(ed->watcher->impl));
 
-    chmod(tmppath, 0644);
+    f = fopen(tmppath, "w");
+    fputs("external\n", f);
+    fclose(f);
     editor_check_file_changes(ed);
-
     TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"external", 8));
+    TEST_ASSERT_EQUAL_INT(MODE_NORMAL, ed->mode);
 }
 
 int main(void) {
@@ -219,6 +224,6 @@ int main(void) {
     RUN_TEST(test_check_detects_external_modification);
     RUN_TEST(test_save_updates_watcher_prevents_false_change);
     RUN_TEST(test_failed_save_keeps_external_change_detectable);
-    RUN_TEST(test_failed_reload_is_retried);
+    RUN_TEST(test_failed_reload_keeps_mode_and_is_not_repolled);
     return UNITY_END();
 }

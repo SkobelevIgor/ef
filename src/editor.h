@@ -87,7 +87,7 @@ void editor_enter_insert_mode(Editor *ed);
 void editor_schedule_auto_save(Editor *ed);
 
 /* Save all modified buffers. */
-void editor_save_all_modified(Editor *ed);
+bool editor_save_all_modified(Editor *ed);
 
 /* Undo/redo. */
 void editor_undo(Editor *ed);

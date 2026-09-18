@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "test_helpers.h"
 #include "normal.h"
+#include <ncurses.h>
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
@@ -636,6 +637,17 @@ void test_goto_line_large_number(void) {
     TEST_ASSERT_EQUAL_INT(2, editor_active_pane(ed)->cursor_row);
 }
 
+void test_f10_does_not_quit_when_save_fails(void) {
+    const wchar_t *lines[] = {L"abc"};
+    setup_editor(lines, 1);
+    buf->filename = strdup("/nonexistent/ef_dir/file.txt");
+    buf->modified = true;
+
+    EditorEvent ev = {EV_KEY, KEY_F(10), 0, false, false};
+    TEST_ASSERT_FALSE(editor_handle_key(ed, &ev));
+    TEST_ASSERT_TRUE(buf->modified);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -681,5 +693,6 @@ int main(void) {
     RUN_TEST(test_goto_line_rejects_letters);
     RUN_TEST(test_goto_line_auto_cancel_on_empty);
     RUN_TEST(test_goto_line_large_number);
+    RUN_TEST(test_f10_does_not_quit_when_save_fails);
     return UNITY_END();
 }
