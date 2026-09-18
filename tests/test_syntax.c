@@ -140,6 +140,22 @@ void test_highlight_priority(void) {
     syntax_highlighter_free(h);
 }
 
+void test_highlight_priority_zero_applies(void) {
+    SyntaxRuleConfig rule = {"\\d+", {"blue", true}, 0};
+    SyntaxHighlighter *h = syntax_highlighter_new(&rule, 1);
+
+    wchar_t *line = L"x = 42";
+    int count;
+    SyntaxToken *tokens = syntax_highlight_line(h, line, wcslen(line), &count);
+
+    TEST_ASSERT_EQUAL(1, count);
+    TEST_ASSERT_EQUAL(4, tokens[0].start);
+    TEST_ASSERT_EQUAL(6, tokens[0].end);
+
+    free(tokens);
+    syntax_highlighter_free(h);
+}
+
 void test_highlight_adjacent_merge(void) {
     /* A pattern that matches multiple adjacent chars should merge into one token */
     SyntaxRuleConfig rule = {"\\d+", {"blue", true}, 5};
@@ -350,6 +366,7 @@ int main(void) {
     RUN_TEST(test_highlight_keyword);
     RUN_TEST(test_highlight_string_literal);
     RUN_TEST(test_highlight_priority);
+    RUN_TEST(test_highlight_priority_zero_applies);
     RUN_TEST(test_highlight_adjacent_merge);
     RUN_TEST(test_highlight_multiple_matches);
     RUN_TEST(test_highlight_unicode);

@@ -4,6 +4,7 @@
 #include "syntax.h"
 #include "xalloc.h"
 
+#include <limits.h>
 #include <ncurses.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,8 +130,11 @@ SyntaxToken *syntax_highlight_line(SyntaxHighlighter *h,
     char *utf8 = wcs_to_utf8_mapped(line, line_len, &byte_len, &b2c);
 
     int *rule_indices = xmalloc(line_len * sizeof(int));
-    int *priorities = xcalloc(line_len, sizeof(int));
-    for (int i = 0; i < line_len; i++) rule_indices[i] = -1;
+    int *priorities = xmalloc(line_len * sizeof(int));
+    for (int i = 0; i < line_len; i++) {
+        rule_indices[i] = -1;
+        priorities[i] = INT_MIN;
+    }
 
     pcre2_match_data *md = pcre2_match_data_create(16, NULL);
 
