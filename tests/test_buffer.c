@@ -264,6 +264,15 @@ void test_load_long_line_not_split(void) {
     remove(tmp);
 }
 
+void test_load_failure_keeps_buffer_intact(void) {
+    buffer_insert_char(buf, 0, 0, L'k');
+    buf->filename = strdup("/tmp");
+    TEST_ASSERT_EQUAL_INT(-1, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(L'k', buf->lines[0][0]);
+}
+
 /* --- NewlineWithIndent tests --------------------------------------------- */
 
 void test_newline_with_indent_at_end_of_indented_line(void) {
@@ -559,6 +568,7 @@ int main(void) {
     RUN_TEST(test_insert_line_before);
     RUN_TEST(test_save_and_load);
     RUN_TEST(test_load_long_line_not_split);
+    RUN_TEST(test_load_failure_keeps_buffer_intact);
     RUN_TEST(test_indent_range_with_tab);
     RUN_TEST(test_indent_range_with_spaces);
     RUN_TEST(test_unindent_tab);

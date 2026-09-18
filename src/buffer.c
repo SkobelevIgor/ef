@@ -144,15 +144,10 @@ void buffer_splice_lines(Buffer *buf, int start, int delete_count,
 
 /* --- File I/O ------------------------------------------------------------ */
 
-int buffer_load(Buffer *buf) {
-    FILE *f = fopen(buf->filename, "r");
-    if (!f) return -1;
-
-    /* Free existing lines */
-    for (int i = 0; i < buf->line_count; i++) {
-        free(buf->lines[i]);
-    }
-    buf->line_count = 0;
+static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out) {
+    wchar_t **lines = NULL;
+    int *lens = NULL;
+    int count = 0, alloc = 0;
 
     char *mb_buf = NULL;
     size_t mb_cap = 0;
@@ -176,24 +171,46 @@ int buffer_load(Buffer *buf) {
         }
         wline[wlen] = L'\0';
 
-        buffer_ensure_lines(buf, buf->line_count + 1);
-        buf->lines[buf->line_count] = wline;
-        buf->line_lens[buf->line_count] = (int)wlen;
-        buf->line_caps[buf->line_count] = (int)(wlen + 1);
-        buf->line_count++;
+        if (count >= alloc) {
+            alloc = alloc == 0 ? 16 : alloc * 2;
+            lines = xrealloc(lines, sizeof(wchar_t *) * alloc);
+            lens = xrealloc(lens, sizeof(int) * alloc);
+        }
+        lines[count] = wline;
+        lens[count] = (int)wlen;
+        count++;
     }
     free(mb_buf);
 
-    if (ferror(f)) { fclose(f); return -1; }
-    fclose(f);
-
-    if (buf->line_count == 0) {
-        buffer_ensure_lines(buf, 1);
-        buf->lines[0] = xwcsdup(L"", 0);
-        buf->line_lens[0] = 0;
-        buf->line_caps[0] = 1;
-        buf->line_count = 1;
+    if (ferror(f)) {
+        buffer_free_lines(lines, lens, count);
+        return -1;
     }
+    if (count == 0) {
+        lines = xmalloc(sizeof(wchar_t *));
+        lens = xmalloc(sizeof(int));
+        lines[0] = xwcsdup(L"", 0);
+        lens[0] = 0;
+        count = 1;
+    }
+    *lines_out = lines;
+    *lens_out = lens;
+    return count;
+}
+
+int buffer_load(Buffer *buf) {
+    FILE *f = fopen(buf->filename, "r");
+    if (!f) return -1;
+
+    wchar_t **lines;
+    int *lens;
+    int count = read_file_lines(f, &lines, &lens);
+    fclose(f);
+    if (count < 0) return -1;
+
+    buffer_replace_all(buf, lines, lens, count);
+    free(lines);
+    free(lens);
 
     struct stat st;
     if (stat(buf->filename, &st) == 0) {
