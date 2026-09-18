@@ -114,6 +114,7 @@ void calc_cursor_screen_pos(wchar_t **lines, const int *line_lens,
 
 static void set_cell(cchar_t *cc, wchar_t ch, attr_t attr, short pair) {
     wchar_t wch[2] = {ch, L'\0'};
+    *cc = (cchar_t){0};
     if (setcchar(cc, wch, attr, pair, NULL) == ERR) {
         wch[0] = L'?';
         setcchar(cc, wch, attr, pair, NULL);
@@ -531,6 +532,7 @@ static int ncurses_poll_event(void *self, EditorEvent *ev) {
 
     if (rc == ERR) {
         if (ns->pasting) ns->pasting = false; /* Reset stuck paste state */
+        ev->key = 0;
         ev->type = EV_NONE;
         ev->is_char = false;
         return 0;
