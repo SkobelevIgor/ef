@@ -39,7 +39,7 @@ void editor_trigger_autocomplete(Editor *ed) {
     if (!ac) ac = ac_state_new();
 
     int word_count, *word_lens;
-    wchar_t **words = ac_get_words(ac, buf->lines, buf->line_lens, buf->line_count,
+    wchar_t **words = ac_get_words(ac, buf, buf->lines, buf->line_lens, buf->line_count,
                                    buf->mod_count, pane->cursor_row, start_col,
                                    &word_lens, &word_count);
 

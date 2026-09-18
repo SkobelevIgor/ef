@@ -247,6 +247,26 @@ void test_ctrl_p_navigates_autocomplete_up(void) {
     TEST_ASSERT_EQUAL_INT(1, p->cursor_row); /* cursor didn't move */
 }
 
+void test_pane_switch_dismisses_autocomplete(void) {
+    const wchar_t *lines[] = {L"hello help", L""};
+    setup_editor(lines, 2);
+    Buffer *buf2 = buffer_new();
+    Pane *p2 = pane_new(buf2);
+    ed->panes[1] = p2;
+    ed->pane_count = 2;
+    ed->buffer_registry[1] = buf2;
+    ed->buffer_count = 2;
+    editor_active_pane(ed)->cursor_row = 1;
+
+    send_char(L'h');
+    send_char(L'e');
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+
+    test_send_key(ed, KEY_BTAB);
+    TEST_ASSERT_NULL(ed->input_state->autocomplete);
+    TEST_ASSERT_EQUAL_INT(1, ed->active_pane_idx);
+}
+
 /* --- Map expansion tests ------------------------------------------------- */
 
 void test_insert_latin_extended_char_not_treated_as_f10(void) {
@@ -579,6 +599,7 @@ int main(void) {
     RUN_TEST(test_ctrl_n_navigates_autocomplete_down);
     RUN_TEST(test_ctrl_p_navigates_autocomplete_up);
     RUN_TEST(test_insert_latin_extended_char_not_treated_as_f10);
+    RUN_TEST(test_pane_switch_dismisses_autocomplete);
     RUN_TEST(test_map_paren_expansion);
     RUN_TEST(test_map_bracket_expansion);
     RUN_TEST(test_map_no_match_single_paren);

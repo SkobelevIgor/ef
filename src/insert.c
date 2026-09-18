@@ -97,6 +97,7 @@ static void handle_special_keys(Editor *ed, EditorEvent *ev) {
         editor_schedule_auto_save(ed);
         break;
     case KEY_BTAB:
+        dismiss_ac(ed);
         if (ed->pane_count > 1) {
             history_commit_session(ed->history, buf->lines,
                                    buf->line_lens, buf->line_count);

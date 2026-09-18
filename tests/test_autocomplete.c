@@ -239,18 +239,38 @@ void test_ac_get_words_caching(void) {
     int count;
     int *wlens;
 
-    wchar_t **words1 = ac_get_words(ac, lines, lens, 1, 1, -1, -1, &wlens, &count);
+    wchar_t **words1 = ac_get_words(ac, lines, lines, lens, 1, 1, -1, -1, &wlens, &count);
     TEST_ASSERT_TRUE(count >= 2);
     int count1 = count;
 
     /* Same mod_count → cached */
-    wchar_t **words2 = ac_get_words(ac, lines, lens, 1, 1, -1, -1, &wlens, &count);
+    wchar_t **words2 = ac_get_words(ac, lines, lines, lens, 1, 1, -1, -1, &wlens, &count);
     TEST_ASSERT_EQUAL_PTR(words1, words2);
     TEST_ASSERT_EQUAL_INT(count1, count);
 
     /* Different mod_count → recalculate */
-    ac_get_words(ac, lines, lens, 1, 2, -1, -1, &wlens, &count);
+    ac_get_words(ac, lines, lines, lens, 1, 2, -1, -1, &wlens, &count);
     TEST_ASSERT_EQUAL_INT(2, (int)ac->cached_mod_count);
+
+    ac_state_free(ac);
+}
+
+void test_ac_get_words_different_source_rebuilds(void) {
+    AutocompleteState *ac = ac_state_new();
+    wchar_t *lines1[] = {(wchar_t *)L"hello world"};
+    wchar_t *lines2[] = {(wchar_t *)L"foo"};
+    int lens1[] = {11};
+    int lens2[] = {3};
+    int count;
+    int *wlens;
+
+    ac_get_words(ac, lines1, lines1, lens1, 1, 1, -1, -1, &wlens, &count);
+    TEST_ASSERT_EQUAL_INT(2, count);
+
+    /* Same mod_count, different source → recalculate */
+    ac_get_words(ac, lines2, lines2, lens2, 1, 1, -1, -1, &wlens, &count);
+    TEST_ASSERT_EQUAL_INT(1, count);
+    TEST_ASSERT_EQUAL_PTR(lines2, ac->cached_source);
 
     ac_state_free(ac);
 }
@@ -298,5 +318,6 @@ int main(void) {
     RUN_TEST(test_ac_next_prev);
     RUN_TEST(test_ac_next_nil);
     RUN_TEST(test_ac_get_words_caching);
+    RUN_TEST(test_ac_get_words_different_source_rebuilds);
     return UNITY_END();
 }

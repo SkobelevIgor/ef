@@ -28,6 +28,7 @@ typedef struct AutocompleteState {
     int       *cached_word_lens;
     int        cached_word_count;
     uint64_t   cached_mod_count;
+    const void *cached_source;
 } AutocompleteState;
 
 /* Check if a character is a word delimiter */
@@ -65,8 +66,8 @@ Suggestion *ac_selected(AutocompleteState *ac);
 void ac_next(AutocompleteState *ac);
 void ac_prev(AutocompleteState *ac);
 
-/* Get cached words, rebuilding if buffer changed */
-wchar_t **ac_get_words(AutocompleteState *ac, wchar_t **lines,
+/* Get cached words, rebuilding if buffer changed (source identifies the buffer) */
+wchar_t **ac_get_words(AutocompleteState *ac, const void *source, wchar_t **lines,
                        const int *line_lens, int line_count,
                        uint64_t mod_count, int exclude_row, int exclude_col,
                        int **out_lens, int *out_count);

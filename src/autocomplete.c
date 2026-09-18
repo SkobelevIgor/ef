@@ -236,11 +236,12 @@ void ac_prev(AutocompleteState *ac) {
     if (ac->selected_idx < 0) ac->selected_idx = ac->suggestion_count - 1;
 }
 
-wchar_t **ac_get_words(AutocompleteState *ac, wchar_t **lines,
+wchar_t **ac_get_words(AutocompleteState *ac, const void *source, wchar_t **lines,
                        const int *line_lens, int line_count,
                        uint64_t mod_count, int exclude_row, int exclude_col,
                        int **out_lens, int *out_count) {
-    if (ac->cached_words && ac->cached_mod_count == mod_count) {
+    if (ac->cached_words && ac->cached_source == source
+        && ac->cached_mod_count == mod_count) {
         *out_lens = ac->cached_word_lens;
         *out_count = ac->cached_word_count;
         return ac->cached_words;
@@ -252,6 +253,7 @@ wchar_t **ac_get_words(AutocompleteState *ac, wchar_t **lines,
                                         exclude_row, exclude_col,
                                         &ac->cached_word_lens, &ac->cached_word_count);
     ac->cached_mod_count = mod_count;
+    ac->cached_source = source;
 
     *out_lens = ac->cached_word_lens;
     *out_count = ac->cached_word_count;

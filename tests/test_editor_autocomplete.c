@@ -123,6 +123,42 @@ void test_accept_autocomplete_navigated(void) {
     TEST_ASSERT_TRUE(p->cursor_col > 3);
 }
 
+static Buffer *make_buffer(const wchar_t *lines[], int count) {
+    Buffer *b = buffer_new();
+    for (int i = 0; i < count; i++) {
+        int len = (int)wcslen(lines[i]);
+        wchar_t *l = malloc(sizeof(wchar_t) * (len + 1));
+        wmemcpy(l, lines[i], len);
+        l[len] = L'\0';
+        if (i == 0) buffer_set_line(b, 0, l, len);
+        else buffer_insert_line_after(b, b->line_count - 1, l, len);
+    }
+    return b;
+}
+
+void test_trigger_autocomplete_uses_active_pane_buffer(void) {
+    const wchar_t *l1[] = {L"hello help", L"hel"};
+    const wchar_t *l2[] = {L"world wonder", L"wo"};
+    Buffer *bufs[] = {make_buffer(l1, 2), make_buffer(l2, 2)};
+    Pane *panes[] = {pane_new(bufs[0]), pane_new(bufs[1])};
+    ed = editor_new_with_deps(&test_mock_screen, bufs, panes, 2,
+                              SPLIT_HORIZONTAL);
+    bufs[1]->mod_count = bufs[0]->mod_count;
+
+    panes[0]->cursor_row = 1; panes[0]->cursor_col = 3;
+    editor_trigger_autocomplete(ed);
+    TEST_ASSERT_NOT_NULL(ed->input_state->autocomplete);
+
+    ed->active_pane_idx = 1;
+    panes[1]->cursor_row = 1; panes[1]->cursor_col = 2;
+    editor_trigger_autocomplete(ed);
+
+    AutocompleteState *ac = ed->input_state->autocomplete;
+    TEST_ASSERT_NOT_NULL(ac);
+    TEST_ASSERT_EQUAL_INT(2, ac->suggestion_count);
+    TEST_ASSERT_TRUE(ac->suggestions[0].word[0] == L'w');
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -133,5 +169,6 @@ int main(void) {
     RUN_TEST(test_accept_autocomplete);
     RUN_TEST(test_accept_autocomplete_nil);
     RUN_TEST(test_accept_autocomplete_navigated);
+    RUN_TEST(test_trigger_autocomplete_uses_active_pane_buffer);
     return UNITY_END();
 }
