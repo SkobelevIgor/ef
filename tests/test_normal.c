@@ -133,7 +133,9 @@ void test_dd_count_beyond_end_is_bounded(void) {
     TEST_ASSERT_EQUAL_INT(1, buf->line_count);
     TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
     TEST_ASSERT_EQUAL_INT(3, ed->clipboard->line_count);
-    TEST_ASSERT_EQUAL_INT(3, ed->history->undo_stack[0]->text_count);
+
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(3, buf->line_count);
 }
 
 void test_yy_count_beyond_end_is_bounded(void) {
@@ -249,6 +251,53 @@ void test_undo(void) {
 
     send_char(L'u'); /* undo */
     TEST_ASSERT_EQUAL_INT(3, buf->line_lens[0]);
+}
+
+void test_undo_dd_of_sole_line(void) {
+    const wchar_t *lines[] = {L"abc"};
+    setup_editor(lines, 1);
+
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(3, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"abc", 3));
+
+    send_char((wchar_t)CTRL_R);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+}
+
+void test_undo_dd_count_that_empties_buffer(void) {
+    const wchar_t *lines[] = {L"a", L"b"};
+    setup_editor(lines, 2);
+
+    send_char(L'2');
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(L'a', buf->lines[0][0]);
+    TEST_ASSERT_EQUAL_INT(L'b', buf->lines[1][0]);
+}
+
+void test_undo_dd_leaving_empty_line(void) {
+    const wchar_t *lines[] = {L"a", L""};
+    setup_editor(lines, 2);
+
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(L'a', buf->lines[0][0]);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[1]);
 }
 
 void test_goto_line_colon(void) {
@@ -540,6 +589,9 @@ int main(void) {
     RUN_TEST(test_d_dollar_cuts_to_clipboard);
     RUN_TEST(test_d_zero_cuts_to_clipboard);
     RUN_TEST(test_undo);
+    RUN_TEST(test_undo_dd_of_sole_line);
+    RUN_TEST(test_undo_dd_count_that_empties_buffer);
+    RUN_TEST(test_undo_dd_leaving_empty_line);
     RUN_TEST(test_goto_line_colon);
     RUN_TEST(test_goto_line_colon_cr);
     RUN_TEST(test_G_goes_to_last_line);

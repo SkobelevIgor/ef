@@ -310,8 +310,19 @@ static void handle_op_dd(Editor *ed, int count) {
         actual++;
     }
     clipboard_set(ed->clipboard, deleted, del_lens, actual, true);
-    history_record_delete_lines(ed->history, buf, start_row,
-                                deleted, del_lens, actual);
+    if (start_row == 0 && actual == remaining) {
+        Change *c = change_new(CHANGE_REPLACE, buf, 0, 0);
+        c->old_text = buffer_copy_lines(deleted, del_lens, actual,
+                                        &c->old_text_lens);
+        c->old_text_count = actual;
+        c->text = buffer_copy_lines(buf->lines, buf->line_lens, 1,
+                                    &c->text_lens);
+        c->text_count = 1;
+        history_push(ed->history, c);
+    } else {
+        history_record_delete_lines(ed->history, buf, start_row,
+                                    deleted, del_lens, actual);
+    }
     for (int i = 0; i < actual; i++) free(deleted[i]);
     free(deleted);
     free(del_lens);
