@@ -15,6 +15,9 @@
 #define DEFAULT_TAB_STOP      4
 #define DEFAULT_HISTORY_SIZE  100
 
+/* Limits */
+#define MAX_COUNT  1000000
+
 /* Control key codes */
 #define CTRL_D    4
 #define CTRL_N   14
