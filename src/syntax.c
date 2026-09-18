@@ -142,8 +142,11 @@ SyntaxToken *syntax_highlight_line(SyntaxHighlighter *h,
     for (int ri = 0; ri < h->rule_count; ri++) {
         PCRE2_SIZE offset = 0;
         while (offset < (PCRE2_SIZE)byte_len) {
+            /* The first match of each rule validates the whole line's
+               UTF-8; re-checking on every later match is quadratic. */
+            uint32_t opts = offset > 0 ? PCRE2_NO_UTF_CHECK : 0;
             int rc = pcre2_match(h->rules[ri].code, (PCRE2_SPTR8)utf8,
-                                  byte_len, offset, 0, md, NULL);
+                                  byte_len, offset, opts, md, NULL);
             if (rc < 1) break;
 
             PCRE2_SIZE *ov = pcre2_get_ovector_pointer(md);

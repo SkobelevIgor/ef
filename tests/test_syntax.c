@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <time.h>
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -238,6 +239,32 @@ void test_highlight_invalid_pattern(void) {
     syntax_highlighter_free(h);
 }
 
+static double seconds_to_highlight(SyntaxHighlighter *h, const wchar_t *line,
+                                   int len) {
+    int count;
+    clock_t t0 = clock();
+    SyntaxToken *tokens = syntax_highlight_line(h, line, len, &count);
+    double secs = (double)(clock() - t0) / CLOCKS_PER_SEC;
+    TEST_ASSERT_GREATER_THAN(1000, count);
+    free(tokens);
+    return secs;
+}
+
+void test_highlight_long_line_many_matches_is_fast(void) {
+    /* 400 KB of `"k":"v",` — one match every few bytes. */
+    const int len = 400000;
+    wchar_t *line = malloc((len + 1) * sizeof(wchar_t));
+    static const wchar_t unit[] = L"\"k\":\"v\",";
+    for (int i = 0; i < len; i++) line[i] = unit[i % 8];
+    line[len] = 0;
+    SyntaxRuleConfig rule = {"\"[^\"]*\"", {"green", false}, 10};
+    SyntaxHighlighter *h = syntax_highlighter_new(&rule, 1);
+    double secs = seconds_to_highlight(h, line, len);
+    TEST_ASSERT_TRUE_MESSAGE(secs < 1.0, "highlighting scales quadratically");
+    syntax_highlighter_free(h);
+    free(line);
+}
+
 /* --- syntax_token_at ----------------------------------------------------- */
 
 void test_token_at_found(void) {
@@ -368,6 +395,8 @@ int main(void) {
     RUN_TEST(test_highlight_empty_match_multibyte);
     RUN_TEST(test_highlight_invalid_pattern);
     RUN_TEST(test_highlight_comment);
+
+    RUN_TEST(test_highlight_long_line_many_matches_is_fast);
 
     /* token_at */
     RUN_TEST(test_token_at_found);

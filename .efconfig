@@ -64,14 +64,74 @@
 				{"pattern": "\\b0b[01]+\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
 			]
 		},
-		"yaml": {
-			"extensions": [".yml", ".yaml"],
-			"syntax_highlighting": false,
+		"json": {
+			"extensions": [".json"],
+			"syntax_highlighting": true,
 			"tabstop": 2,
 			"shiftwidth": 2,
 			"autoindentation": true,
 			"expandtab": true,
-			"syntax_rules": []
+			"syntax_rules": [
+				{"pattern": "\"([^\"\\\\]|\\\\.)*\"(?=\\s*:)", "style": {"color": "cyan", "bold": false}, "priority": 40},
+				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 35},
+				{"pattern": "\\\\([\"\\\\/bfnrt]|u[0-9a-fA-F]{4})", "style": {"color": "purple", "bold": false}, "priority": 36},
+				{"pattern": "\\b(true|false|null)\\b", "style": {"color": "blue", "bold": true}, "priority": 10},
+				{"pattern": "[\\[\\]\\{\\}]", "style": {"color": "purple", "bold": false}, "priority": 11},
+				{"pattern": "-?\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b", "style": {"color": "yellow", "bold": false}, "priority": 5}
+			]
+		},
+		"xml": {
+			"extensions": [".xml", ".xsd", ".xsl", ".xslt", ".svg"],
+			"syntax_highlighting": true,
+			"tabstop": 2,
+			"shiftwidth": 2,
+			"autoindentation": true,
+			"expandtab": true,
+			"syntax_rules": [
+				{"pattern": "<!--.*?-->|<!--.*$|^.*?-->", "style": {"color": "gray", "bold": false}, "priority": 30},
+				{"pattern": "<!\\[CDATA\\[.*?\\]\\]>|<!\\[CDATA\\[.*$|^.*?\\]\\]>", "style": {"color": "green", "bold": false}, "priority": 34},
+				{"pattern": "\"[^\"]*\"|'[^']*'", "style": {"color": "green", "bold": false}, "priority": 35},
+				{"pattern": "(?<=<|</|<\\?|<!)[\\w:.-]+", "style": {"color": "yellow", "bold": true}, "priority": 10},
+				{"pattern": "<[/?!]?|[/?]?>", "style": {"color": "purple", "bold": false}, "priority": 11},
+				{"pattern": "[\\w:.-]+(?=\\s*=)", "style": {"color": "cyan", "bold": false}, "priority": 8},
+				{"pattern": "&#?\\w+;", "style": {"color": "red", "bold": false}, "priority": 12}
+			]
+		},
+		"yaml": {
+			"extensions": [".yml", ".yaml"],
+			"syntax_highlighting": true,
+			"tabstop": 2,
+			"shiftwidth": 2,
+			"autoindentation": true,
+			"expandtab": true,
+			"syntax_rules": [
+				{"pattern": "(?:^|\\s)#.*$", "style": {"color": "gray", "bold": false}, "priority": 30},
+				{"pattern": "^\\s*(?:-\\s+)?\\K(?:\"[^\"]*\"|'[^']*'|[^\\s:#'\"\\-\\[\\]{}][^:#]{0,255}?)(?=\\s*:(?:\\s|$))", "style": {"color": "cyan", "bold": false}, "priority": 40},
+				{"pattern": "[{,]\\s*\\K[\\w.-]+(?=\\s*:)", "style": {"color": "cyan", "bold": false}, "priority": 12},
+				{"pattern": "\"([^\"\\\\]|\\\\.)*\"", "style": {"color": "green", "bold": false}, "priority": 35},
+				{"pattern": "'([^']|'')*'", "style": {"color": "green", "bold": false}, "priority": 35},
+				{"pattern": "^(?:---|\\.\\.\\.)(?=\\s|$)|^%.*$", "style": {"color": "purple", "bold": true}, "priority": 20},
+				{"pattern": "^\\s*\\K[-?:](?=\\s|$)|[\\[\\]{}]|(?<=\\S):(?=\\s|$)", "style": {"color": "purple", "bold": false}, "priority": 11},
+				{"pattern": "(?<=[\\s\\[{,])(?:[&*][\\w-]+|![\\w!:/.-]+)(?=[\\s,\\]}]|$)", "style": {"color": "red", "bold": false}, "priority": 12},
+				{"pattern": "(?<=[\\[{ ,])(?i:true|false|yes|no|on|off|null|~)(?=\\s*(?:[,\\]}#]|$))", "style": {"color": "blue", "bold": true}, "priority": 10},
+				{"pattern": "(?<=[\\[{ ,])(?:-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?|0x[0-9a-fA-F]+|0o[0-7]+|\\.(?:inf|Inf|INF|nan|NaN|NAN))(?=\\s*(?:[,\\]}#]|$))", "style": {"color": "yellow", "bold": false}, "priority": 5},
+				{"pattern": "(?<=[\\[{ ,])\\d{4}-\\d\\d-\\d\\d(?:[Tt ]\\d\\d:\\d\\d:\\d\\d(?:\\.\\d+)?(?:Z|[+-]\\d\\d:?\\d\\d)?)?(?=\\s*(?:[,\\]}#]|$))", "style": {"color": "yellow", "bold": false}, "priority": 6}
+			]
+		},
+		"ini": {
+			"extensions": [".ini", ".cfg", ".editorconfig"],
+			"syntax_highlighting": true,
+			"tabstop": 4,
+			"shiftwidth": 4,
+			"autoindentation": true,
+			"expandtab": true,
+			"syntax_rules": [
+				{"pattern": "^\\s*[;#].*$", "style": {"color": "gray", "bold": false}, "priority": 30},
+				{"pattern": "^\\s*\\[.*\\]", "style": {"color": "purple", "bold": true}, "priority": 20},
+				{"pattern": "^\\s*\\K[^\\s=:;#\\[][^=:]{0,255}?(?=\\s*[=:])", "style": {"color": "cyan", "bold": false}, "priority": 10},
+				{"pattern": "[=:]\\K.*$", "style": {"color": "green", "bold": false}, "priority": 8},
+				{"pattern": "^[^=;#]*=\\s*\\K-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\s*$", "style": {"color": "yellow", "bold": false}, "priority": 9}
+			]
 		}
 	},
 	"maps": {

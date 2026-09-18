@@ -189,7 +189,7 @@ ctest --test-dir build
 
 User configuration file: `~/.efconfig` (JSON format).
 
-On first run, if `~/.efconfig` doesn't exist, `ef` creates it with default syntax rules for Go, Python, and JavaScript/TypeScript.
+On first run, if `~/.efconfig` doesn't exist, `ef` creates it with default syntax rules for Go, Python, JavaScript/TypeScript, JSON, XML, YAML, and INI.
 
 See [.efconfig](.efconfig) for the full default configuration.
 
