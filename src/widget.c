@@ -100,8 +100,7 @@ WidgetSession *widget_current_session(WidgetState *w) {
 
 int calculate_bar_rows(const wchar_t *text, int text_len, int width) {
     if (width <= 0) return 1;
-    if (text_len <= width) return 1;
-    return (text_len + width - 1) / width;
+    return text_len / width + 1;
 }
 
 int widget_bar_height(const WidgetState *w, int screen_width) {

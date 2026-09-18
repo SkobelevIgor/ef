@@ -139,7 +139,7 @@ void test_bar_rows_short(void) {
 
 void test_bar_rows_exact(void) {
     wchar_t text[21]; for (int i = 0; i < 20; i++) text[i] = L'x'; text[20] = L'\0';
-    TEST_ASSERT_EQUAL_INT(1, calculate_bar_rows(text, 20, 20));
+    TEST_ASSERT_EQUAL_INT(2, calculate_bar_rows(text, 20, 20));
 }
 
 void test_bar_rows_overflow(void) {
@@ -149,7 +149,7 @@ void test_bar_rows_overflow(void) {
 
 void test_bar_rows_very_long(void) {
     wchar_t text[61]; for (int i = 0; i < 60; i++) text[i] = L'x'; text[60] = L'\0';
-    TEST_ASSERT_EQUAL_INT(3, calculate_bar_rows(text, 60, 20));
+    TEST_ASSERT_EQUAL_INT(4, calculate_bar_rows(text, 60, 20));
 }
 
 void test_bar_rows_zero_width(void) {
@@ -165,6 +165,14 @@ void test_bar_rows_negative_width(void) {
 void test_bar_height_search(void) {
     WidgetState *w = widget_state_new(WIDGET_SEARCH, 0, 0);
     TEST_ASSERT_EQUAL_INT(1, widget_bar_height(w, 80));
+    widget_state_free(w);
+}
+
+void test_bar_height_search_exact_width(void) {
+    WidgetState *w = widget_state_new(WIDGET_SEARCH, 0, 0);
+    for (int i = 0; i < 80; i++)
+        widget_session_append_query(w->search_session, L'x');
+    TEST_ASSERT_EQUAL_INT(2, widget_bar_height(w, 80));
     widget_state_free(w);
 }
 
@@ -208,6 +216,7 @@ int main(void) {
     RUN_TEST(test_bar_rows_zero_width);
     RUN_TEST(test_bar_rows_negative_width);
     RUN_TEST(test_bar_height_search);
+    RUN_TEST(test_bar_height_search_exact_width);
     RUN_TEST(test_bar_height_find_replace);
     RUN_TEST(test_bar_height_none);
     RUN_TEST(test_bar_height_null);
