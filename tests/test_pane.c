@@ -225,6 +225,19 @@ void test_adjust_cursor_for_delete(void) {
     TEST_ASSERT_EQUAL_INT(2, pane->cursor_row);
 }
 
+void test_clamp_cursor_clamps_selection_anchor(void) {
+    const wchar_t *lines[] = {L"abc", L"de", L"f"};
+    setup_buffer(lines, 3);
+    pane->selection_active = true;
+    pane->selection_start_row = 9;
+    pane->selection_start_col = 7;
+
+    pane_clamp_cursor(pane);
+
+    TEST_ASSERT_EQUAL_INT(2, pane->selection_start_row);
+    TEST_ASSERT_EQUAL_INT(1, pane->selection_start_col);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -251,5 +264,6 @@ int main(void) {
     RUN_TEST(test_clamp_cursor_col);
     RUN_TEST(test_adjust_cursor_for_insert);
     RUN_TEST(test_adjust_cursor_for_delete);
+    RUN_TEST(test_clamp_cursor_clamps_selection_anchor);
     return UNITY_END();
 }

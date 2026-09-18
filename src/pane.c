@@ -42,6 +42,11 @@ void pane_clamp_cursor(Pane *p) {
     }
     if (p->cursor_row < 0) p->cursor_row = 0;
     pane_clamp_cursor_col(p);
+    if (!p->selection_active) return;
+    if (p->selection_start_row >= p->buffer->line_count)
+        p->selection_start_row = p->buffer->line_count - 1;
+    int ll = p->buffer->line_lens[p->selection_start_row];
+    if (p->selection_start_col > ll) p->selection_start_col = ll;
 }
 
 void pane_clamp_cursor_col(Pane *p) {
