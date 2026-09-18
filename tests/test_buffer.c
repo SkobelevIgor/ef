@@ -273,6 +273,40 @@ void test_load_failure_keeps_buffer_intact(void) {
     TEST_ASSERT_EQUAL_INT(L'k', buf->lines[0][0]);
 }
 
+void test_load_cjk_line(void) {
+    const char *tmp = "/tmp/ef_test_cjk.txt";
+    write_file(tmp, "\xe6\x97\xa5\xe6\x9c\xac\n", 7);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0x65E5, buf->lines[0][0]);
+    TEST_ASSERT_EQUAL_INT(0x672C, buf->lines[0][1]);
+    remove(tmp);
+}
+
+void test_load_invalid_utf8_fails(void) {
+    const char *tmp = "/tmp/ef_test_invalid_utf8.txt";
+    write_file(tmp, "a\xffz\n", 4);
+    buffer_insert_char(buf, 0, 0, L'k');
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(-1, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(L'k', buf->lines[0][0]);
+    remove(tmp);
+}
+
+void test_load_embedded_nul_fails(void) {
+    const char *tmp = "/tmp/ef_test_nul.txt";
+    write_file(tmp, "ab\0cd\n", 6);
+    buffer_insert_char(buf, 0, 0, L'k');
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(-1, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(L'k', buf->lines[0][0]);
+    remove(tmp);
+}
+
 /* --- NewlineWithIndent tests --------------------------------------------- */
 
 void test_newline_with_indent_at_end_of_indented_line(void) {
@@ -569,6 +603,9 @@ int main(void) {
     RUN_TEST(test_save_and_load);
     RUN_TEST(test_load_long_line_not_split);
     RUN_TEST(test_load_failure_keeps_buffer_intact);
+    RUN_TEST(test_load_cjk_line);
+    RUN_TEST(test_load_invalid_utf8_fails);
+    RUN_TEST(test_load_embedded_nul_fails);
     RUN_TEST(test_indent_range_with_tab);
     RUN_TEST(test_indent_range_with_spaces);
     RUN_TEST(test_unindent_tab);

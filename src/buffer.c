@@ -164,7 +164,11 @@ static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out) {
 
         /* Convert to wide chars */
         size_t wlen = mbstowcs(NULL, mb_buf, 0);
-        if (wlen == (size_t)-1) wlen = 0;
+        if (wlen == (size_t)-1 || strlen(mb_buf) != mb_len) {
+            free(mb_buf);
+            buffer_free_lines(lines, lens, count);
+            return -1;
+        }
         wchar_t *wline = xmalloc(sizeof(wchar_t) * (wlen + 1));
         if (wlen > 0) {
             mbstowcs(wline, mb_buf, wlen + 1);
