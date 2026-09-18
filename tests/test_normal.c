@@ -333,6 +333,24 @@ void test_undo_redo_use_pane_showing_changed_buffer(void) {
     TEST_ASSERT_EQUAL_INT(2, panes[1]->cursor_col);
 }
 
+void test_redo_clamps_other_panes_on_same_buffer(void) {
+    const wchar_t *lines[] = {L"a", L"b", L"c"};
+    setup_editor(lines, 3);
+    Pane *other = pane_new(buf);
+    ed->panes[ed->pane_count++] = other;
+
+    send_char(L'3');
+    send_char(L'd');
+    send_char(L'd');
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(3, buf->line_count);
+    other->cursor_row = 2;
+
+    send_char((wchar_t)CTRL_R);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, other->cursor_row);
+}
+
 void test_undo_without_visible_pane_applies_change(void) {
     const wchar_t *lines[] = {L"abc"};
     setup_editor(lines, 1);
@@ -643,6 +661,7 @@ int main(void) {
     RUN_TEST(test_undo_dd_count_that_empties_buffer);
     RUN_TEST(test_undo_dd_leaving_empty_line);
     RUN_TEST(test_undo_redo_use_pane_showing_changed_buffer);
+    RUN_TEST(test_redo_clamps_other_panes_on_same_buffer);
     RUN_TEST(test_undo_without_visible_pane_applies_change);
     RUN_TEST(test_goto_line_colon);
     RUN_TEST(test_goto_line_colon_cr);

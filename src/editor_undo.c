@@ -110,11 +110,19 @@ static Pane *pane_for_buffer(Editor *ed, Buffer *buf) {
     return NULL;
 }
 
-static void place_cursor(Pane *pane, int row, int col) {
-    if (!pane) return;
-    pane->cursor_row = row;
-    pane->cursor_col = col;
-    pane_clamp_cursor(pane);
+/* Move the cursor of the pane showing buf and clamp every other pane
+   that shows it. */
+static void place_cursor(Editor *ed, Buffer *buf, int row, int col) {
+    Pane *target = pane_for_buffer(ed, buf);
+    for (int i = 0; i < ed->pane_count; i++) {
+        Pane *p = ed->panes[i];
+        if (p->buffer != buf) continue;
+        if (p == target) {
+            p->cursor_row = row;
+            p->cursor_col = col;
+        }
+        pane_clamp_cursor(p);
+    }
 }
 
 void editor_undo(Editor *ed) {
@@ -123,17 +131,16 @@ void editor_undo(Editor *ed) {
     if (!c) return;
 
     Buffer *buf = c->buffer ? c->buffer : editor_active_buffer(ed);
-    Pane *pane = pane_for_buffer(ed, buf);
 
     switch (c->type) {
     case CHANGE_INSERT:
         apply_remove_text(buf, c);
-        place_cursor(pane, c->row, c->col);
+        place_cursor(ed, buf, c->row, c->col);
         buf->modified = true;
         break;
     case CHANGE_DELETE:
         apply_insert_text(buf, c);
-        place_cursor(pane, c->row, c->col);
+        place_cursor(ed, buf, c->row, c->col);
         buf->modified = true;
         break;
     case CHANGE_REPLACE:
@@ -145,7 +152,7 @@ void editor_undo(Editor *ed) {
             free(lines);
             free(lens);
         }
-        place_cursor(pane, c->row, c->col);
+        place_cursor(ed, buf, c->row, c->col);
         buf->modified = true;
         break;
     }
@@ -159,22 +166,21 @@ void editor_redo(Editor *ed) {
     if (!c) return;
 
     Buffer *buf = c->buffer ? c->buffer : editor_active_buffer(ed);
-    Pane *pane = pane_for_buffer(ed, buf);
 
     switch (c->type) {
     case CHANGE_INSERT:
         apply_insert_text(buf, c);
         if (c->text_count == 1) {
-            place_cursor(pane, c->row, c->col + c->text_lens[0]);
+            place_cursor(ed, buf, c->row, c->col + c->text_lens[0]);
         } else {
-            place_cursor(pane, c->row + c->text_count - 1,
+            place_cursor(ed, buf, c->row + c->text_count - 1,
                          c->text_lens[c->text_count - 1]);
         }
         buf->modified = true;
         break;
     case CHANGE_DELETE:
         apply_remove_text(buf, c);
-        place_cursor(pane, c->row, c->col);
+        place_cursor(ed, buf, c->row, c->col);
         buf->modified = true;
         break;
     case CHANGE_REPLACE:
@@ -186,7 +192,7 @@ void editor_redo(Editor *ed) {
             free(lines);
             free(lens);
         }
-        place_cursor(pane, c->row, c->col);
+        place_cursor(ed, buf, c->row, c->col);
         buf->modified = true;
         break;
     }
