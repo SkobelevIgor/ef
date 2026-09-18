@@ -282,6 +282,8 @@ void editor_handle_file_change(Editor *ed, const char *filename) {
         if (ed->panes[i]->buffer == buf)
             pane_clamp_cursor(ed->panes[i]);
     }
+    if (pane->buffer == buf)
+        editor_update_widget_matches(ed);
 }
 
 void editor_check_file_changes(Editor *ed) {

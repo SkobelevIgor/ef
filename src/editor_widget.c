@@ -114,6 +114,7 @@ static void widget_navigate_to_current(Editor *ed) {
     if (!s || s->current_index < 0 || s->current_index >= s->match_count) return;
     pane->cursor_row = s->matches[s->current_index].row;
     pane->cursor_col = s->matches[s->current_index].col;
+    pane_clamp_cursor(pane);
 }
 
 void editor_widget_next_match(Editor *ed) {

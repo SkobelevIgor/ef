@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "test_helpers.h"
 #include "file_watcher.h"
+#include "widget.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -102,6 +103,27 @@ void test_file_change_null_filename(void) {
     editor_handle_file_change(ed, NULL);
 }
 
+void test_file_change_refreshes_widget_matches(void) {
+    setup_editor_with_file("a\nb\nc\nhello\n");
+    editor_open_find_replace_widget(ed);
+    WidgetSession *s = editor_active_pane(ed)->widget->find_replace_session;
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = {EV_KEY, (int)*c, *c, true, false};
+        editor_handle_widget_mode(ed, &ev);
+    }
+    TEST_ASSERT_EQUAL_INT(3, s->matches[0].row);
+
+    FILE *f = fopen(tmppath, "w");
+    fprintf(f, "hello\n");
+    fclose(f);
+
+    editor_handle_file_change(ed, tmppath);
+
+    TEST_ASSERT_EQUAL_INT(1, s->match_count);
+    TEST_ASSERT_EQUAL_INT(0, s->matches[0].row);
+    TEST_ASSERT_EQUAL_INT(0, s->current_index);
+}
+
 /* --- editor_check_file_changes tests ------------------------------------ */
 
 void test_check_no_change_is_noop(void) {
@@ -154,6 +176,7 @@ int main(void) {
     RUN_TEST(test_file_change_records_undo);
     RUN_TEST(test_file_change_unknown_file_noop);
     RUN_TEST(test_file_change_null_filename);
+    RUN_TEST(test_file_change_refreshes_widget_matches);
     RUN_TEST(test_check_no_change_is_noop);
     RUN_TEST(test_check_detects_external_modification);
     RUN_TEST(test_save_updates_watcher_prevents_false_change);

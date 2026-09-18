@@ -739,6 +739,24 @@ void test_switch_back_recovers_from_no_matches(void) {
     TEST_ASSERT_EQUAL_INT(0, s->current_index);
 }
 
+void test_next_match_clamps_stale_row(void) {
+    const wchar_t *lines[] = {L"hello world hello"};
+    setup_editor(lines, 1);
+    Pane *p = editor_active_pane(ed);
+
+    editor_open_search_widget(ed);
+    for (const wchar_t *c = L"hello"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+    WidgetSession *s = p->widget->search_session;
+    s->matches[1].row = 99;
+
+    editor_widget_next_match(ed);
+
+    TEST_ASSERT_TRUE(p->cursor_row < buf->line_count);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -782,6 +800,7 @@ int main(void) {
     /* Dual sessions */
     RUN_TEST(test_dual_sessions_independent);
     RUN_TEST(test_switch_back_recovers_from_no_matches);
+    RUN_TEST(test_next_match_clamps_stale_row);
     /* Real ncurses key behavior (is_char=true for control chars) */
     RUN_TEST(test_escape_as_char_closes_widget);
     RUN_TEST(test_enter_as_char_confirms_search);
