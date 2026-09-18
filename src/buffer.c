@@ -33,6 +33,7 @@ Buffer *buffer_new(void) {
     Buffer *buf = xcalloc(1, sizeof(Buffer));
     buf->config.tab_stop = DEFAULT_TAB_STOP;
     buf->config.shift_width = DEFAULT_TAB_STOP;
+    buf->trailing_newline = true;
     /* Start with one empty line */
     buffer_ensure_lines(buf, 1);
     buf->lines[0] = xwcsdup(L"", 0);
@@ -144,7 +145,8 @@ void buffer_splice_lines(Buffer *buf, int start, int delete_count,
 
 /* --- File I/O ------------------------------------------------------------ */
 
-static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out) {
+static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out,
+                           bool *trailing_newline) {
     wchar_t **lines = NULL;
     int *lens = NULL;
     int count = 0, alloc = 0;
@@ -152,10 +154,12 @@ static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out) {
     char *mb_buf = NULL;
     size_t mb_cap = 0;
     ssize_t nread;
+    *trailing_newline = true;
     while ((nread = getline(&mb_buf, &mb_cap, f)) != -1) {
         /* Strip trailing newline */
         size_t mb_len = (size_t)nread;
-        if (mb_len > 0 && mb_buf[mb_len - 1] == '\n') {
+        *trailing_newline = (mb_len > 0 && mb_buf[mb_len - 1] == '\n');
+        if (*trailing_newline) {
             mb_buf[--mb_len] = '\0';
         }
         if (mb_len > 0 && mb_buf[mb_len - 1] == '\r') {
@@ -208,13 +212,15 @@ int buffer_load(Buffer *buf) {
 
     wchar_t **lines;
     int *lens;
-    int count = read_file_lines(f, &lines, &lens);
+    bool trailing_newline;
+    int count = read_file_lines(f, &lines, &lens, &trailing_newline);
     fclose(f);
     if (count < 0) return -1;
 
     buffer_replace_all(buf, lines, lens, count);
     free(lines);
     free(lens);
+    buf->trailing_newline = trailing_newline;
 
     struct stat st;
     if (stat(buf->filename, &st) == 0) {
@@ -236,7 +242,7 @@ int buffer_save(Buffer *buf) {
         if (n == (size_t)-1) n = 0;
         mb_buf[n] = '\0';
         if (fputs(mb_buf, f) == EOF) { fclose(f); return -1; }
-        if (i < buf->line_count - 1) {
+        if (i < buf->line_count - 1 || buf->trailing_newline) {
             if (fputc('\n', f) == EOF) { fclose(f); return -1; }
         }
     }

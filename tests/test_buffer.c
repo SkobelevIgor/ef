@@ -273,6 +273,62 @@ void test_load_failure_keeps_buffer_intact(void) {
     TEST_ASSERT_EQUAL_INT(L'k', buf->lines[0][0]);
 }
 
+static void assert_file_equals(const char *path, const char *expected) {
+    char got[64] = {0};
+    FILE *f = fopen(path, "rb");
+    TEST_ASSERT_NOT_NULL(f);
+    size_t n = fread(got, 1, sizeof(got) - 1, f);
+    fclose(f);
+    TEST_ASSERT_EQUAL_INT(strlen(expected), n);
+    TEST_ASSERT_EQUAL_MEMORY(expected, got, n);
+}
+
+void test_new_buffer_saves_trailing_newline(void) {
+    const char *tmp = "/tmp/ef_test_trailing_new.txt";
+    TEST_ASSERT_TRUE(buf->trailing_newline);
+    buf->filename = strdup(tmp);
+    buffer_insert_char(buf, 0, 0, L'a');
+    TEST_ASSERT_EQUAL_INT(0, buffer_save(buf));
+    assert_file_equals(tmp, "a\n");
+    remove(tmp);
+}
+
+void test_load_preserves_missing_trailing_newline(void) {
+    const char *tmp = "/tmp/ef_test_no_trailing.txt";
+    write_file(tmp, "ab\ncd", 5);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_FALSE(buf->trailing_newline);
+    TEST_ASSERT_EQUAL_INT(0, buffer_save(buf));
+    assert_file_equals(tmp, "ab\ncd");
+    remove(tmp);
+}
+
+void test_load_newline_only_file(void) {
+    const char *tmp = "/tmp/ef_test_newline_only.txt";
+    write_file(tmp, "\n", 1);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+    TEST_ASSERT_TRUE(buf->trailing_newline);
+    TEST_ASSERT_EQUAL_INT(0, buffer_save(buf));
+    assert_file_equals(tmp, "\n");
+    remove(tmp);
+}
+
+void test_load_empty_file(void) {
+    const char *tmp = "/tmp/ef_test_empty.txt";
+    write_file(tmp, "", 0);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+    TEST_ASSERT_TRUE(buf->trailing_newline);
+    remove(tmp);
+}
+
 void test_load_cjk_line(void) {
     const char *tmp = "/tmp/ef_test_cjk.txt";
     write_file(tmp, "\xe6\x97\xa5\xe6\x9c\xac\n", 7);
@@ -603,6 +659,10 @@ int main(void) {
     RUN_TEST(test_save_and_load);
     RUN_TEST(test_load_long_line_not_split);
     RUN_TEST(test_load_failure_keeps_buffer_intact);
+    RUN_TEST(test_new_buffer_saves_trailing_newline);
+    RUN_TEST(test_load_preserves_missing_trailing_newline);
+    RUN_TEST(test_load_newline_only_file);
+    RUN_TEST(test_load_empty_file);
     RUN_TEST(test_load_cjk_line);
     RUN_TEST(test_load_invalid_utf8_fails);
     RUN_TEST(test_load_embedded_nul_fails);
