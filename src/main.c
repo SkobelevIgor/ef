@@ -94,15 +94,17 @@ int main(int argc, char *argv[]) {
 
     if (forced_ext) {
         EditorConfig *vcfg = config_load(NULL);
-        if (vcfg) {
-            if (!config_get_file_type(vcfg, forced_ext)) {
-                fprintf(stderr, "ef: unknown file type '%s'\n", forced_ext);
-                config_free(vcfg);
-                for (int i = 0; i < nargs; i++) free(files[i].filename);
-                free(files);
-                return 1;
-            }
-            config_free(vcfg);
+        bool known = vcfg && config_get_file_type(vcfg, forced_ext);
+        if (!vcfg)
+            fprintf(stderr, "ef: cannot load config to validate file type '%s'\n",
+                    forced_ext);
+        else if (!known)
+            fprintf(stderr, "ef: unknown file type '%s'\n", forced_ext);
+        config_free(vcfg);
+        if (!known) {
+            for (int i = 0; i < nargs; i++) free(files[i].filename);
+            free(files);
+            return 1;
         }
     }
 
