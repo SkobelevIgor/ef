@@ -96,6 +96,18 @@ void test_session_commit_no_change(void) {
     TEST_ASSERT_FALSE(history_can_undo(hist));
 }
 
+void test_session_commit_respects_max_size(void) {
+    history_free(hist);
+    hist = history_new(3);
+    for (int i = 0; i < 20; i++) {
+        history_start_session(hist, buf, 0, 0);
+        buffer_insert_char(buf, 0, 0, L'a');
+        history_commit_session(hist, buf->lines, buf->line_lens,
+                               buf->line_count);
+    }
+    TEST_ASSERT_EQUAL_INT(3, hist->undo_count);
+}
+
 void test_record_insert(void) {
     wchar_t *text = malloc(sizeof(wchar_t) * 4);
     wmemcpy(text, L"abc", 3); text[3] = L'\0';
@@ -132,6 +144,7 @@ int main(void) {
     RUN_TEST(test_max_size_trims);
     RUN_TEST(test_session_commit);
     RUN_TEST(test_session_commit_no_change);
+    RUN_TEST(test_session_commit_respects_max_size);
     RUN_TEST(test_record_insert);
     RUN_TEST(test_record_delete_lines);
     return UNITY_END();

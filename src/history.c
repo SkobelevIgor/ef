@@ -140,9 +140,6 @@ void history_commit_session(History *h, wchar_t **current_lines,
     }
 
     if (changed) {
-        clear_stack(h->redo_stack, h->redo_count);
-        h->redo_count = 0;
-
         Change *c = change_new(CHANGE_REPLACE, h->session_buffer,
                                h->session_start_row, h->session_start_col);
         c->text = buffer_copy_lines(current_lines, current_lens,
@@ -154,7 +151,7 @@ void history_commit_session(History *h, wchar_t **current_lines,
         h->session_lines = NULL;
         h->session_line_lens = NULL;
         h->session_line_count = 0;
-        stack_push(&h->undo_stack, &h->undo_count, &h->undo_cap, c);
+        history_push(h, c);
     }
 
 done:
