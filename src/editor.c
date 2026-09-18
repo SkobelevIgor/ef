@@ -181,8 +181,7 @@ void editor_save_all_modified(Editor *ed) {
     for (int i = 0; i < ed->buffer_count; i++) {
         Buffer *buf = ed->buffer_registry[i];
         if (buf->modified) {
-            buffer_save(buf);
-            if (ed->watcher && buf->filename)
+            if (buffer_save(buf) == 0 && ed->watcher && buf->filename)
                 ed->watcher->update_mod_time(
                     ed->watcher->impl, buf->filename);
         }
@@ -267,6 +266,8 @@ void editor_handle_file_change(Editor *ed, const char *filename) {
         buffer_free_lines(old, old_lens, old_count);
         return;
     }
+    if (ed->watcher)
+        ed->watcher->update_mod_time(ed->watcher->impl, filename);
 
     Change *c = change_new(CHANGE_REPLACE, buf, row, col);
     c->text = buffer_copy_lines(

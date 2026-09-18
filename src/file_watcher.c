@@ -59,10 +59,8 @@ const char *fw_check(FileWatcher *fw) {
         struct stat st;
         if (stat(fw->files[i].filename, &st) != 0)
             continue;
-        if (fw_changed(&fw->files[i], &st)) {
-            fw_record(&fw->files[i], &st);
+        if (fw_changed(&fw->files[i], &st))
             return fw->files[i].filename;
-        }
     }
     return NULL;
 }

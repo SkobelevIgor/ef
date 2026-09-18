@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <locale.h>
 
 static Editor *ed;
@@ -169,6 +170,43 @@ void test_save_updates_watcher_prevents_false_change(void) {
     TEST_ASSERT_EQUAL_INT(6, buf->line_lens[0]);
 }
 
+void test_failed_save_keeps_external_change_detectable(void) {
+    setup_editor_with_file("hello\n");
+    Buffer *buf = editor_active_buffer(ed);
+
+    FILE *f = fopen(tmppath, "w");
+    fprintf(f, "external\n");
+    fclose(f);
+    chmod(tmppath, 0444);
+
+    buffer_insert_char(buf, 0, 5, L'!');
+    buf->modified = true;
+    editor_save_all_modified(ed);
+
+    editor_check_file_changes(ed);
+    chmod(tmppath, 0644);
+
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"external", 8));
+}
+
+void test_failed_reload_is_retried(void) {
+    setup_editor_with_file("hello\n");
+    Buffer *buf = editor_active_buffer(ed);
+
+    FILE *f = fopen(tmppath, "w");
+    fprintf(f, "external\n");
+    fclose(f);
+    chmod(tmppath, 0000);
+
+    editor_check_file_changes(ed);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"hello", 5));
+
+    chmod(tmppath, 0644);
+    editor_check_file_changes(ed);
+
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"external", 8));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_file_change_reloads_buffer);
@@ -180,5 +218,7 @@ int main(void) {
     RUN_TEST(test_check_no_change_is_noop);
     RUN_TEST(test_check_detects_external_modification);
     RUN_TEST(test_save_updates_watcher_prevents_false_change);
+    RUN_TEST(test_failed_save_keeps_external_change_detectable);
+    RUN_TEST(test_failed_reload_is_retried);
     return UNITY_END();
 }
