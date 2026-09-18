@@ -300,6 +300,56 @@ void test_undo_dd_leaving_empty_line(void) {
     TEST_ASSERT_EQUAL_INT(0, buf->line_lens[1]);
 }
 
+static Buffer *make_buffer(const wchar_t *text) {
+    Buffer *b = buffer_new();
+    int len = (int)wcslen(text);
+    wchar_t *l = malloc(sizeof(wchar_t) * (len + 1));
+    wmemcpy(l, text, len); l[len] = L'\0';
+    buffer_set_line(b, 0, l, len);
+    return b;
+}
+
+void test_undo_redo_use_pane_showing_changed_buffer(void) {
+    Buffer *bufs[2] = {make_buffer(L"abc"), make_buffer(L"xyz")};
+    Pane *panes[2] = {pane_new(bufs[0]), pane_new(bufs[1])};
+    ed = editor_new_with_deps(&test_mock_screen, bufs, panes, 2,
+                              SPLIT_HORIZONTAL);
+
+    panes[0]->cursor_col = 1;
+    send_char(L'x'); /* delete 'b' in bufs[0] */
+    TEST_ASSERT_EQUAL_INT(2, bufs[0]->line_lens[0]);
+
+    ed->active_pane_idx = 1;
+    panes[1]->cursor_col = 2;
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(3, bufs[0]->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(3, bufs[1]->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(1, panes[0]->cursor_col);
+    TEST_ASSERT_EQUAL_INT(2, panes[1]->cursor_col);
+
+    send_char((wchar_t)CTRL_R);
+    TEST_ASSERT_EQUAL_INT(2, bufs[0]->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(1, panes[0]->cursor_col);
+    TEST_ASSERT_EQUAL_INT(2, panes[1]->cursor_col);
+}
+
+void test_undo_without_visible_pane_applies_change(void) {
+    const wchar_t *lines[] = {L"abc"};
+    setup_editor(lines, 1);
+    send_char(L'x');
+
+    Buffer *other = make_buffer(L"xyz");
+    Pane *pane = editor_active_pane(ed);
+    pane->buffer = other;
+    pane->cursor_col = 2;
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(3, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(2, pane->cursor_col);
+
+    pane->buffer = buf;
+    buffer_free(other);
+}
+
 void test_goto_line_colon(void) {
     const wchar_t *lines[] = {L"1", L"2", L"3", L"4", L"5"};
     setup_editor(lines, 5);
@@ -592,6 +642,8 @@ int main(void) {
     RUN_TEST(test_undo_dd_of_sole_line);
     RUN_TEST(test_undo_dd_count_that_empties_buffer);
     RUN_TEST(test_undo_dd_leaving_empty_line);
+    RUN_TEST(test_undo_redo_use_pane_showing_changed_buffer);
+    RUN_TEST(test_undo_without_visible_pane_applies_change);
     RUN_TEST(test_goto_line_colon);
     RUN_TEST(test_goto_line_colon_cr);
     RUN_TEST(test_G_goes_to_last_line);

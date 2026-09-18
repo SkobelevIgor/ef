@@ -101,25 +101,39 @@ static void apply_insert_text(Buffer *buf, Change *c) {
     }
 }
 
+static Pane *pane_for_buffer(Editor *ed, Buffer *buf) {
+    Pane *active = editor_active_pane(ed);
+    if (active->buffer == buf) return active;
+    for (int i = 0; i < ed->pane_count; i++) {
+        if (ed->panes[i]->buffer == buf) return ed->panes[i];
+    }
+    return NULL;
+}
+
+static void place_cursor(Pane *pane, int row, int col) {
+    if (!pane) return;
+    pane->cursor_row = row;
+    pane->cursor_col = col;
+    pane_clamp_cursor(pane);
+}
+
 void editor_undo(Editor *ed) {
     if (ed->read_only) return;
     Change *c = history_undo(ed->history);
     if (!c) return;
 
     Buffer *buf = c->buffer ? c->buffer : editor_active_buffer(ed);
-    Pane *pane = editor_active_pane(ed);
+    Pane *pane = pane_for_buffer(ed, buf);
 
     switch (c->type) {
     case CHANGE_INSERT:
         apply_remove_text(buf, c);
-        pane->cursor_row = c->row;
-        pane->cursor_col = c->col;
+        place_cursor(pane, c->row, c->col);
         buf->modified = true;
         break;
     case CHANGE_DELETE:
         apply_insert_text(buf, c);
-        pane->cursor_row = c->row;
-        pane->cursor_col = c->col;
+        place_cursor(pane, c->row, c->col);
         buf->modified = true;
         break;
     case CHANGE_REPLACE:
@@ -131,14 +145,11 @@ void editor_undo(Editor *ed) {
             free(lines);
             free(lens);
         }
-        pane->cursor_row = c->row;
-        pane->cursor_col = c->col;
-        pane_clamp_cursor(pane);
+        place_cursor(pane, c->row, c->col);
         buf->modified = true;
         break;
     }
 
-    pane_clamp_cursor_col(pane);
     editor_schedule_auto_save(ed);
 }
 
@@ -148,26 +159,22 @@ void editor_redo(Editor *ed) {
     if (!c) return;
 
     Buffer *buf = c->buffer ? c->buffer : editor_active_buffer(ed);
-    Pane *pane = editor_active_pane(ed);
+    Pane *pane = pane_for_buffer(ed, buf);
 
     switch (c->type) {
     case CHANGE_INSERT:
         apply_insert_text(buf, c);
         if (c->text_count == 1) {
-            pane->cursor_col = c->col + c->text_lens[0];
+            place_cursor(pane, c->row, c->col + c->text_lens[0]);
         } else {
-            pane->cursor_row = c->row + c->text_count - 1;
-            pane->cursor_col = c->text_lens[c->text_count - 1];
+            place_cursor(pane, c->row + c->text_count - 1,
+                         c->text_lens[c->text_count - 1]);
         }
         buf->modified = true;
         break;
     case CHANGE_DELETE:
         apply_remove_text(buf, c);
-        pane->cursor_row = c->row;
-        pane->cursor_col = c->col;
-        if (pane->cursor_row >= buf->line_count) {
-            pane->cursor_row = buf->line_count - 1;
-        }
+        place_cursor(pane, c->row, c->col);
         buf->modified = true;
         break;
     case CHANGE_REPLACE:
@@ -179,13 +186,10 @@ void editor_redo(Editor *ed) {
             free(lines);
             free(lens);
         }
-        pane->cursor_row = c->row;
-        pane->cursor_col = c->col;
-        pane_clamp_cursor(pane);
+        place_cursor(pane, c->row, c->col);
         buf->modified = true;
         break;
     }
 
-    pane_clamp_cursor_col(pane);
     editor_schedule_auto_save(ed);
 }
