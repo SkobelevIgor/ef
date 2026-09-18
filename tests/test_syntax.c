@@ -211,6 +211,22 @@ void test_highlight_unicode(void) {
     syntax_highlighter_free(h);
 }
 
+void test_highlight_empty_match_multibyte(void) {
+    SyntaxRuleConfig rule = {"x*", {"blue", false}, 5};
+    SyntaxHighlighter *h = syntax_highlighter_new(&rule, 1);
+
+    wchar_t *line = L"\x65E5xxb"; /* 日xxb */
+    int count;
+    SyntaxToken *tokens = syntax_highlight_line(h, line, wcslen(line), &count);
+
+    TEST_ASSERT_EQUAL(1, count);
+    TEST_ASSERT_EQUAL(1, tokens[0].start);
+    TEST_ASSERT_EQUAL(3, tokens[0].end);
+
+    free(tokens);
+    syntax_highlighter_free(h);
+}
+
 void test_highlight_invalid_pattern(void) {
     SyntaxRuleConfig rule = {"[invalid", {"red", false}, 5};
     SyntaxHighlighter *h = syntax_highlighter_new(&rule, 1);
@@ -370,6 +386,7 @@ int main(void) {
     RUN_TEST(test_highlight_adjacent_merge);
     RUN_TEST(test_highlight_multiple_matches);
     RUN_TEST(test_highlight_unicode);
+    RUN_TEST(test_highlight_empty_match_multibyte);
     RUN_TEST(test_highlight_invalid_pattern);
     RUN_TEST(test_highlight_comment);
 

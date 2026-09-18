@@ -157,7 +157,12 @@ SyntaxToken *syntax_highlight_line(SyntaxHighlighter *h,
             }
 
             offset = ov[1];
-            if (ov[1] == ov[0]) offset++;
+            if (ov[1] == ov[0]) {
+                offset++;
+                while (offset < (PCRE2_SIZE)byte_len
+                       && ((unsigned char)utf8[offset] & 0xC0) == 0x80)
+                    offset++;
+            }
         }
     }
 
