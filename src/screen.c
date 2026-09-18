@@ -383,8 +383,8 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 if (!first_wrap) {
                     /* Wrap indicator */
                     char wrap_buf[16];
-                    snprintf(wrap_buf, sizeof(wrap_buf), "%*s ",
-                             ln_w - 1, "\xe2\x86\xaa"); /* ↪ in UTF-8 */
+                    snprintf(wrap_buf, sizeof(wrap_buf), "%*s\xe2\x86\xaa ",
+                             ln_w - 2, ""); /* ↪ in UTF-8 */
                     int wp = is_current ? cur_ln_pair : PAIR_WRAP_INDIC;
                     attron(COLOR_PAIR(wp));
                     mvaddstr(pane_y + screen_row, lay->start_x, wrap_buf);
