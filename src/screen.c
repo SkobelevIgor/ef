@@ -182,7 +182,8 @@ static bool is_in_match(const SearchMatch *matches, int count,
 /* --- Autocomplete dropdown ----------------------------------------------- */
 
 static void render_autocomplete(AutocompleteState *ac,
-                                 int cursor_x, int cursor_y, int max_y) {
+                                 int cursor_x, int cursor_y,
+                                 int min_y, int max_y) {
     if (!ac || !ac->active || ac->suggestion_count == 0) return;
 
     int max_w = 0;
@@ -194,26 +195,29 @@ static void render_autocomplete(AutocompleteState *ac,
     int drop_w = max_w + pad * 2;
     int drop_h = ac->suggestion_count;
     int space_below = max_y - cursor_y - 1;
+    int space_above = cursor_y - min_y;
     int start_y;
 
     if (space_below >= drop_h) {
         start_y = cursor_y + 1;
-    } else if (cursor_y >= drop_h) {
+    } else if (space_above >= drop_h) {
         start_y = cursor_y - drop_h;
-    } else if (space_below > cursor_y) {
+    } else if (space_below > space_above) {
         start_y = cursor_y + 1;
         drop_h = space_below;
     } else {
-        drop_h = cursor_y;
-        start_y = 0;
+        drop_h = space_above;
+        start_y = cursor_y - drop_h;
     }
     if (drop_h <= 0) return;
 
     int display = drop_h < ac->suggestion_count ? drop_h : ac->suggestion_count;
+    int offset = ac->selected_idx - display + 1;
+    if (offset < 0) offset = 0;
 
     for (int i = 0; i < display; i++) {
         int y = start_y + i;
-        bool selected = (i == ac->selected_idx);
+        bool selected = (i + offset == ac->selected_idx);
         int pair = selected ? PAIR_AUTOCOMPLETE_SELECTED
                             : PAIR_AUTOCOMPLETE_NORMAL;
         attron(COLOR_PAIR(pair));
@@ -223,15 +227,16 @@ static void render_autocomplete(AutocompleteState *ac,
             mvaddch(y, cursor_x + p, ' ');
 
         /* Word */
+        const Suggestion *sug = &ac->suggestions[i + offset];
         int x = cursor_x + pad;
-        for (int c = 0; c < ac->suggestions[i].word_len; c++) {
+        for (int c = 0; c < sug->word_len; c++) {
             cchar_t cc;
-            set_cell(&cc, ac->suggestions[i].word[c], A_NORMAL, pair);
+            set_cell(&cc, sug->word[c], A_NORMAL, pair);
             mvadd_wch(y, x + c, &cc);
         }
 
         /* Right padding */
-        int filled = pad + ac->suggestions[i].word_len;
+        int filled = pad + sug->word_len;
         for (int p = filled; p < drop_w; p++)
             mvaddch(y, cursor_x + p, ' ');
 
@@ -500,7 +505,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 render_autocomplete(input->autocomplete,
                                     al->start_x + cx,
                                     al->start_y + active_bar_h + cy,
-                                    pane_max_y);
+                                    al->start_y, pane_max_y);
                 /* Restore cursor after overlay */
                 move(al->start_y + active_bar_h + cy, al->start_x + cx);
             }
