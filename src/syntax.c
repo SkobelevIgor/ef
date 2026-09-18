@@ -35,7 +35,7 @@ short syntax_parse_color(const char *name) {
 
 static char *wcs_to_utf8_mapped(const wchar_t *line, int line_len,
                                  int *out_byte_len, int **out_b2c) {
-    int max_bytes = line_len * 4 + 1;
+    size_t max_bytes = (size_t)line_len * 4 + 1;
     char *utf8 = xmalloc(max_bytes);
     int *b2c = xmalloc((max_bytes + 1) * sizeof(int));
     int pos = 0;
