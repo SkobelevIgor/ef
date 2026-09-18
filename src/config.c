@@ -215,7 +215,6 @@ const char *config_detect_file_type(const EditorConfig *cfg,
     if (!dot) return NULL;
 
     for (int i = 0; i < cfg->file_type_count; i++) {
-        if (!cfg->file_type_names[i]) continue;
         for (int j = 0; j < cfg->file_types[i].ext_count; j++) {
             if (strcasecmp(dot, cfg->file_types[i].extensions[j]) == 0)
                 return cfg->file_type_names[i];
@@ -228,8 +227,7 @@ const EditorFileTypeConfig *config_get_file_type(const EditorConfig *cfg,
                                                   const char *name) {
     if (!cfg || !name) return NULL;
     for (int i = 0; i < cfg->file_type_count; i++) {
-        if (cfg->file_type_names[i]
-            && strcmp(cfg->file_type_names[i], name) == 0)
+        if (strcmp(cfg->file_type_names[i], name) == 0)
             return &cfg->file_types[i];
     }
     return NULL;
