@@ -124,8 +124,9 @@ static void set_cell(cchar_t *cc, wchar_t ch, attr_t attr, short pair) {
 
 static int render_widget_bar(const wchar_t *text, int text_len,
                              int start_x, int start_y, int width,
-                             int color_pair) {
+                             int max_rows, int color_pair) {
     int rows = calculate_bar_rows(text, text_len, width);
+    if (rows > max_rows) rows = max_rows;
     attron(COLOR_PAIR(color_pair));
     for (int r = 0; r < rows; r++)
         for (int c = 0; c < width; c++)
@@ -146,7 +147,8 @@ static int render_widget_bar(const wchar_t *text, int text_len,
 }
 
 static int render_widget_in_pane(const WidgetState *w,
-                                 int start_x, int start_y, int width) {
+                                 int start_x, int start_y, int width,
+                                 int max_rows) {
     if (!w || !w->active) return 0;
     WidgetSession *s = widget_current_session((WidgetState *)w);
     int total = 0;
@@ -154,14 +156,15 @@ static int render_widget_in_pane(const WidgetState *w,
     if (w->kind == WIDGET_SEARCH && s) {
         int pair = s->no_matches ? PAIR_SEARCH_BAR_NOMATCH : PAIR_SEARCH_BAR;
         total += render_widget_bar(s->query, s->query_len,
-                                   start_x, start_y, width, pair);
+                                   start_x, start_y, width, max_rows, pair);
     } else if (w->kind == WIDGET_FIND_REPLACE && s) {
         int fp = s->no_matches ? PAIR_SEARCH_BAR_NOMATCH : PAIR_SEARCH_BAR;
         total += render_widget_bar(s->query, s->query_len,
-                                   start_x, start_y, width, fp);
+                                   start_x, start_y, width, max_rows, fp);
         int rp = s->no_matches ? PAIR_REPLACE_BAR_NOMATCH : PAIR_REPLACE_BAR;
         total += render_widget_bar(s->replace_text, s->replace_len,
-                                   start_x, start_y + total, width, rp);
+                                   start_x, start_y + total, width,
+                                   max_rows - total, rp);
     }
     return total;
 }
@@ -291,7 +294,8 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
         int bar_h = 0;
         if (pane_has_active_widget(pane)) {
             bar_h = render_widget_in_pane(pane->widget,
-                                          lay->start_x, pane_y, lay->width);
+                                          lay->start_x, pane_y, lay->width,
+                                          lay->height - 1);
             pane_y += bar_h;
             pane_h -= bar_h;
             if (pane_h < 1) pane_h = 1;
