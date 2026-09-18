@@ -198,7 +198,7 @@ bool editor_handle_key(Editor *ed, EditorEvent *ev) {
     }
 
     /* F10 = quit */
-    if (ev->type == EV_KEY && ev->key == KEY_F(10)) {
+    if (ev->type == EV_KEY && !ev->is_char && ev->key == KEY_F(10)) {
         if (!ed->read_only) editor_save_all_modified(ed);
         return true;
     }

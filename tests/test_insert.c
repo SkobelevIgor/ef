@@ -249,6 +249,18 @@ void test_ctrl_p_navigates_autocomplete_up(void) {
 
 /* --- Map expansion tests ------------------------------------------------- */
 
+void test_insert_latin_extended_char_not_treated_as_f10(void) {
+    const wchar_t *lines[] = {L""};
+    setup_editor(lines, 1);
+
+    /* U+0112 == KEY_F(10) numerically, but is_char must win */
+    EditorEvent ev = {EV_KEY, KEY_F(10), L'\u0112', true, false};
+    TEST_ASSERT_FALSE(editor_handle_key(ed, &ev));
+    TEST_ASSERT_EQUAL_INT(MODE_INSERT, ed->mode);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_lens[0]);
+    TEST_ASSERT_TRUE(buf->lines[0][0] == L'\u0112');
+}
+
 static EditorConfig *make_map_config(void) {
     EditorConfig *cfg = calloc(1, sizeof(EditorConfig));
     cfg->map_count = 2;
@@ -528,6 +540,7 @@ int main(void) {
     RUN_TEST(test_enter_accepts_autocomplete);
     RUN_TEST(test_ctrl_n_navigates_autocomplete_down);
     RUN_TEST(test_ctrl_p_navigates_autocomplete_up);
+    RUN_TEST(test_insert_latin_extended_char_not_treated_as_f10);
     RUN_TEST(test_map_paren_expansion);
     RUN_TEST(test_map_bracket_expansion);
     RUN_TEST(test_map_no_match_single_paren);
