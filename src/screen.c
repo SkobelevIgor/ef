@@ -110,6 +110,16 @@ void calc_cursor_screen_pos(wchar_t **lines, const int *line_lens,
     }
 }
 
+/* --- Cell helpers -------------------------------------------------------- */
+
+static void set_cell(cchar_t *cc, wchar_t ch, attr_t attr, short pair) {
+    wchar_t wch[2] = {ch, L'\0'};
+    if (setcchar(cc, wch, attr, pair, NULL) == ERR) {
+        wch[0] = L'?';
+        setcchar(cc, wch, attr, pair, NULL);
+    }
+}
+
 /* --- Widget bar rendering ------------------------------------------------ */
 
 static int render_widget_bar(const wchar_t *text, int text_len,
@@ -126,8 +136,7 @@ static int render_widget_bar(const wchar_t *text, int text_len,
         if (x >= width) { x = 0; y++; }
         if (y < rows) {
             cchar_t cc;
-            wchar_t wch[2] = {text[i], L'\0'};
-            setcchar(&cc, wch, A_NORMAL, color_pair, NULL);
+            set_cell(&cc, text[i], A_NORMAL, color_pair);
             mvadd_wch(start_y + y, start_x + x, &cc);
             x++;
         }
@@ -217,8 +226,7 @@ static void render_autocomplete(AutocompleteState *ac,
         int x = cursor_x + pad;
         for (int c = 0; c < ac->suggestions[i].word_len; c++) {
             cchar_t cc;
-            wchar_t wch[2] = {ac->suggestions[i].word[c], L'\0'};
-            setcchar(&cc, wch, A_NORMAL, pair, NULL);
+            set_cell(&cc, ac->suggestions[i].word[c], A_NORMAL, pair);
             mvadd_wch(y, x + c, &cc);
         }
 
@@ -418,8 +426,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                         }
                     } else {
                         cchar_t cc;
-                        wchar_t wch[2] = {ch, L'\0'};
-                        setcchar(&cc, wch, char_attr, char_pair, NULL);
+                        set_cell(&cc, ch, char_attr, char_pair);
                         mvadd_wch(pane_y + screen_row,
                                   text_x + col, &cc);
                         col++;
