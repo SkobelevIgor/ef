@@ -173,6 +173,23 @@ void test_free_null(void) {
     config_free(NULL); /* Should not crash */
 }
 
+void test_file_types_array_is_skipped(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_ftarray_%d.json", getpid());
+    FILE *f = fopen(path, "w");
+    fprintf(f, "{\"file_types\":[{\"extensions\":[\".go\"]}]}");
+    fclose(f);
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    TEST_ASSERT_EQUAL(0, cfg->file_type_count);
+    TEST_ASSERT_NULL(config_get_file_type(cfg, "go"));
+    TEST_ASSERT_NULL(config_detect_file_type(cfg, "main.go"));
+
+    unlink(path);
+    config_free(cfg);
+}
+
 /* --- Trailing comma tolerance -------------------------------------------- */
 
 static const char *TRAILING_COMMA_CONFIG =
@@ -424,6 +441,7 @@ int main(void) {
     RUN_TEST(test_detect_null_args);
     RUN_TEST(test_get_unknown_type);
     RUN_TEST(test_free_null);
+    RUN_TEST(test_file_types_array_is_skipped);
     RUN_TEST(test_load_trailing_comma_in_object);
     RUN_TEST(test_load_trailing_comma_in_array);
     RUN_TEST(test_load_comma_in_string_preserved);

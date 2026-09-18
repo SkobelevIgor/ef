@@ -168,7 +168,7 @@ EditorConfig *config_load(const char *path) {
     EditorConfig *cfg = xcalloc(1, sizeof(EditorConfig));
 
     cJSON *file_types = cJSON_GetObjectItem(root, "file_types");
-    if (file_types) {
+    if (file_types && cJSON_IsObject(file_types)) {
         int count = cJSON_GetArraySize(file_types);
         cfg->file_types = xcalloc(count, sizeof(EditorFileTypeConfig));
         cfg->file_type_names = xcalloc(count, sizeof(char *));
@@ -176,6 +176,7 @@ EditorConfig *config_load(const char *path) {
         cJSON *ft;
         int idx = 0;
         cJSON_ArrayForEach(ft, file_types) {
+            if (!ft->string) continue;
             cfg->file_type_names[idx] = xstrdup(ft->string);
             parse_file_type(ft, &cfg->file_types[idx]);
             idx++;
@@ -212,6 +213,7 @@ const char *config_detect_file_type(const EditorConfig *cfg,
     if (!dot) return NULL;
 
     for (int i = 0; i < cfg->file_type_count; i++) {
+        if (!cfg->file_type_names[i]) continue;
         for (int j = 0; j < cfg->file_types[i].ext_count; j++) {
             if (strcasecmp(dot, cfg->file_types[i].extensions[j]) == 0)
                 return cfg->file_type_names[i];
@@ -224,7 +226,8 @@ const EditorFileTypeConfig *config_get_file_type(const EditorConfig *cfg,
                                                   const char *name) {
     if (!cfg || !name) return NULL;
     for (int i = 0; i < cfg->file_type_count; i++) {
-        if (strcmp(cfg->file_type_names[i], name) == 0)
+        if (cfg->file_type_names[i]
+            && strcmp(cfg->file_type_names[i], name) == 0)
             return &cfg->file_types[i];
     }
     return NULL;
