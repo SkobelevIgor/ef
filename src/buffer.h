@@ -36,6 +36,7 @@ typedef struct Buffer {
 
     char    *filename;
     bool     modified;
+    bool     trailing_newline;
     time_t   last_mod_time;
 
     char    *file_type;

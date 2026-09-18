@@ -3,6 +3,7 @@
 #include "pane.h"
 #include "screen.h"
 #include "autocomplete.h"
+#include "constants.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +39,8 @@ int input_state_get_count(const InputState *s) {
 }
 
 void input_state_add_digit(InputState *s, int d) {
-    s->count = s->count * 10 + d;
+    if (s->count < MAX_COUNT) s->count = s->count * 10 + d;
+    if (s->count > MAX_COUNT) s->count = MAX_COUNT;
     s->has_count = true;
 }
 

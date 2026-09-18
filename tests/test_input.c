@@ -28,6 +28,12 @@ void test_add_digits(void) {
     TEST_ASSERT_EQUAL_INT(35, input_state_get_count(is));
 }
 
+void test_add_digits_clamps_to_max_count(void) {
+    for (int i = 0; i < 30; i++) input_state_add_digit(is, 9);
+    TEST_ASSERT_TRUE(is->has_count);
+    TEST_ASSERT_EQUAL_INT(MAX_COUNT, input_state_get_count(is));
+}
+
 void test_reset_clears_count(void) {
     input_state_add_digit(is, 5);
     input_state_reset(is);
@@ -363,6 +369,7 @@ int main(void) {
     RUN_TEST(test_new_input_state);
     RUN_TEST(test_get_count_default);
     RUN_TEST(test_add_digits);
+    RUN_TEST(test_add_digits_clamps_to_max_count);
     RUN_TEST(test_reset_clears_count);
     RUN_TEST(test_reset_preserves_last_find);
     RUN_TEST(test_has_pending_find_forward);

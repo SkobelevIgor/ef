@@ -123,6 +123,33 @@ void test_dd_overwrites_clipboard(void) {
     TEST_ASSERT_EQUAL_INT(0, wmemcmp(ed->clipboard->lines[0], L"bbb", 3));
 }
 
+void test_dd_count_beyond_end_is_bounded(void) {
+    const wchar_t *lines[] = {L"a", L"b", L"c"};
+    setup_editor(lines, 3);
+
+    send_char(L'5');
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(3, ed->clipboard->line_count);
+
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(3, buf->line_count);
+}
+
+void test_yy_count_beyond_end_is_bounded(void) {
+    const wchar_t *lines[] = {L"a", L"b", L"c"};
+    setup_editor(lines, 3);
+    editor_active_pane(ed)->cursor_row = 1;
+
+    send_char(L'5');
+    send_char(L'y');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(2, ed->clipboard->line_count);
+    TEST_ASSERT_EQUAL_INT(3, buf->line_count);
+}
+
 void test_x_cuts_to_clipboard(void) {
     const wchar_t *lines[] = {L"hello"};
     setup_editor(lines, 1);
@@ -224,6 +251,121 @@ void test_undo(void) {
 
     send_char(L'u'); /* undo */
     TEST_ASSERT_EQUAL_INT(3, buf->line_lens[0]);
+}
+
+void test_undo_dd_of_sole_line(void) {
+    const wchar_t *lines[] = {L"abc"};
+    setup_editor(lines, 1);
+
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(3, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf->lines[0], L"abc", 3));
+
+    send_char((wchar_t)CTRL_R);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+}
+
+void test_undo_dd_count_that_empties_buffer(void) {
+    const wchar_t *lines[] = {L"a", L"b"};
+    setup_editor(lines, 2);
+
+    send_char(L'2');
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(L'a', buf->lines[0][0]);
+    TEST_ASSERT_EQUAL_INT(L'b', buf->lines[1][0]);
+}
+
+void test_undo_dd_leaving_empty_line(void) {
+    const wchar_t *lines[] = {L"a", L""};
+    setup_editor(lines, 2);
+
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(L'a', buf->lines[0][0]);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[1]);
+}
+
+static Buffer *make_buffer(const wchar_t *text) {
+    Buffer *b = buffer_new();
+    int len = (int)wcslen(text);
+    wchar_t *l = malloc(sizeof(wchar_t) * (len + 1));
+    wmemcpy(l, text, len); l[len] = L'\0';
+    buffer_set_line(b, 0, l, len);
+    return b;
+}
+
+void test_undo_redo_use_pane_showing_changed_buffer(void) {
+    Buffer *bufs[2] = {make_buffer(L"abc"), make_buffer(L"xyz")};
+    Pane *panes[2] = {pane_new(bufs[0]), pane_new(bufs[1])};
+    ed = editor_new_with_deps(&test_mock_screen, bufs, panes, 2,
+                              SPLIT_HORIZONTAL);
+
+    panes[0]->cursor_col = 1;
+    send_char(L'x'); /* delete 'b' in bufs[0] */
+    TEST_ASSERT_EQUAL_INT(2, bufs[0]->line_lens[0]);
+
+    ed->active_pane_idx = 1;
+    panes[1]->cursor_col = 2;
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(3, bufs[0]->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(3, bufs[1]->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(1, panes[0]->cursor_col);
+    TEST_ASSERT_EQUAL_INT(2, panes[1]->cursor_col);
+
+    send_char((wchar_t)CTRL_R);
+    TEST_ASSERT_EQUAL_INT(2, bufs[0]->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(1, panes[0]->cursor_col);
+    TEST_ASSERT_EQUAL_INT(2, panes[1]->cursor_col);
+}
+
+void test_redo_clamps_other_panes_on_same_buffer(void) {
+    const wchar_t *lines[] = {L"a", L"b", L"c"};
+    setup_editor(lines, 3);
+    Pane *other = pane_new(buf);
+    ed->panes[ed->pane_count++] = other;
+
+    send_char(L'3');
+    send_char(L'd');
+    send_char(L'd');
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(3, buf->line_count);
+    other->cursor_row = 2;
+
+    send_char((wchar_t)CTRL_R);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, other->cursor_row);
+}
+
+void test_undo_without_visible_pane_applies_change(void) {
+    const wchar_t *lines[] = {L"abc"};
+    setup_editor(lines, 1);
+    send_char(L'x');
+
+    Buffer *other = make_buffer(L"xyz");
+    Pane *pane = editor_active_pane(ed);
+    pane->buffer = other;
+    pane->cursor_col = 2;
+    send_char(L'u');
+    TEST_ASSERT_EQUAL_INT(3, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(2, pane->cursor_col);
+
+    pane->buffer = buf;
+    buffer_free(other);
 }
 
 void test_goto_line_colon(void) {
@@ -507,12 +649,20 @@ int main(void) {
     RUN_TEST(test_dd_overwrites_clipboard);
     RUN_TEST(test_yy_yanks_line);
     RUN_TEST(test_x_deletes_char);
+    RUN_TEST(test_dd_count_beyond_end_is_bounded);
+    RUN_TEST(test_yy_count_beyond_end_is_bounded);
     RUN_TEST(test_x_cuts_to_clipboard);
     RUN_TEST(test_dw_cuts_to_clipboard);
     RUN_TEST(test_db_cuts_to_clipboard);
     RUN_TEST(test_d_dollar_cuts_to_clipboard);
     RUN_TEST(test_d_zero_cuts_to_clipboard);
     RUN_TEST(test_undo);
+    RUN_TEST(test_undo_dd_of_sole_line);
+    RUN_TEST(test_undo_dd_count_that_empties_buffer);
+    RUN_TEST(test_undo_dd_leaving_empty_line);
+    RUN_TEST(test_undo_redo_use_pane_showing_changed_buffer);
+    RUN_TEST(test_redo_clamps_other_panes_on_same_buffer);
+    RUN_TEST(test_undo_without_visible_pane_applies_change);
     RUN_TEST(test_goto_line_colon);
     RUN_TEST(test_goto_line_colon_cr);
     RUN_TEST(test_G_goes_to_last_line);

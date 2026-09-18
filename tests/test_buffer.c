@@ -217,6 +217,38 @@ void test_insert_line_before(void) {
     TEST_ASSERT_EQUAL_INT(1, buf->line_lens[1]);
 }
 
+/* --- Range tests --------------------------------------------------------- */
+
+void test_delete_range_negative_end_is_safe(void) {
+    wchar_t *line = malloc(sizeof(wchar_t) * 6);
+    wmemcpy(line, L"hello", 5); line[5] = L'\0';
+    buffer_set_line(buf, 0, line, 5);
+
+    int *dlens, dcount;
+    wchar_t **deleted = buffer_delete_range(buf, -1, -1, -1, -1,
+                                            &dlens, &dcount);
+    TEST_ASSERT_EQUAL_INT(1, dcount);
+    TEST_ASSERT_EQUAL_INT(0, dlens[0]);
+    buffer_free_lines(deleted, dlens, dcount);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(5, buf->line_lens[0]);
+}
+
+void test_delete_range_start_beyond_end_is_safe(void) {
+    wchar_t *line = malloc(sizeof(wchar_t) * 6);
+    wmemcpy(line, L"hello", 5); line[5] = L'\0';
+    buffer_set_line(buf, 0, line, 5);
+
+    int *dlens, dcount;
+    wchar_t **deleted = buffer_delete_range(buf, 3, 0, 5, 0,
+                                            &dlens, &dcount);
+    TEST_ASSERT_EQUAL_INT(1, dcount);
+    TEST_ASSERT_EQUAL_INT(0, dlens[0]);
+    buffer_free_lines(deleted, dlens, dcount);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(5, buf->line_lens[0]);
+}
+
 /* --- File I/O tests ------------------------------------------------------ */
 
 void test_save_and_load(void) {
@@ -238,6 +270,154 @@ void test_save_and_load(void) {
     TEST_ASSERT_EQUAL_INT(2, buf2->line_lens[0]);
     TEST_ASSERT_EQUAL_INT(0, wmemcmp(buf2->lines[0], L"hi", 2));
     buffer_free(buf2);
+    remove(tmp);
+}
+
+static void write_file(const char *path, const char *data, size_t len) {
+    FILE *f = fopen(path, "wb");
+    TEST_ASSERT_NOT_NULL(f);
+    TEST_ASSERT_EQUAL_INT(len, fwrite(data, 1, len, f));
+    fclose(f);
+}
+
+void test_load_long_line_not_split(void) {
+    const char *tmp = "/tmp/ef_test_long_line.txt";
+    char *data = malloc(10001);
+    memset(data, 'x', 10000);
+    data[10000] = '\n';
+    write_file(tmp, data, 10001);
+    free(data);
+
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(10000, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(L'x', buf->lines[0][9999]);
+    remove(tmp);
+}
+
+void test_load_failure_keeps_buffer_intact(void) {
+    buffer_insert_char(buf, 0, 0, L'k');
+    buf->filename = strdup("/tmp");
+    TEST_ASSERT_EQUAL_INT(-1, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(1, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(L'k', buf->lines[0][0]);
+}
+
+static void assert_file_equals(const char *path, const char *expected) {
+    char got[64] = {0};
+    FILE *f = fopen(path, "rb");
+    TEST_ASSERT_NOT_NULL(f);
+    size_t n = fread(got, 1, sizeof(got) - 1, f);
+    fclose(f);
+    TEST_ASSERT_EQUAL_INT(strlen(expected), n);
+    TEST_ASSERT_EQUAL_MEMORY(expected, got, n);
+}
+
+void test_new_buffer_saves_trailing_newline(void) {
+    const char *tmp = "/tmp/ef_test_trailing_new.txt";
+    TEST_ASSERT_TRUE(buf->trailing_newline);
+    buf->filename = strdup(tmp);
+    buffer_insert_char(buf, 0, 0, L'a');
+    TEST_ASSERT_EQUAL_INT(0, buffer_save(buf));
+    assert_file_equals(tmp, "a\n");
+    remove(tmp);
+}
+
+void test_load_preserves_missing_trailing_newline(void) {
+    const char *tmp = "/tmp/ef_test_no_trailing.txt";
+    write_file(tmp, "ab\ncd", 5);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(2, buf->line_count);
+    TEST_ASSERT_FALSE(buf->trailing_newline);
+    TEST_ASSERT_EQUAL_INT(0, buffer_save(buf));
+    assert_file_equals(tmp, "ab\ncd");
+    remove(tmp);
+}
+
+void test_load_newline_only_file(void) {
+    const char *tmp = "/tmp/ef_test_newline_only.txt";
+    write_file(tmp, "\n", 1);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+    TEST_ASSERT_TRUE(buf->trailing_newline);
+    TEST_ASSERT_EQUAL_INT(0, buffer_save(buf));
+    assert_file_equals(tmp, "\n");
+    remove(tmp);
+}
+
+void test_load_empty_file(void) {
+    const char *tmp = "/tmp/ef_test_empty.txt";
+    write_file(tmp, "", 0);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+    TEST_ASSERT_TRUE(buf->trailing_newline);
+    remove(tmp);
+}
+
+void test_save_long_line_not_truncated(void) {
+    const char *tmp = "/tmp/ef_test_save_long.txt";
+    wchar_t *line = malloc(sizeof(wchar_t) * 10001);
+    wmemset(line, L'x', 10000);
+    line[10000] = L'\0';
+    buffer_set_line(buf, 0, line, 10000);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_save(buf));
+
+    struct stat st;
+    TEST_ASSERT_EQUAL_INT(0, stat(tmp, &st));
+    TEST_ASSERT_EQUAL_INT(10001, (int)st.st_size);
+    remove(tmp);
+}
+
+void test_save_unencodable_char_fails(void) {
+    const char *tmp = "/tmp/ef_test_save_bad.txt";
+    write_file(tmp, "keep\n", 5);
+    buffer_insert_char(buf, 0, 0, (wchar_t)0xD800);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(-1, buffer_save(buf));
+    TEST_ASSERT_TRUE(buf->modified);
+    assert_file_equals(tmp, "keep\n");
+    remove(tmp);
+}
+
+void test_load_cjk_line(void) {
+    const char *tmp = "/tmp/ef_test_cjk.txt";
+    write_file(tmp, "\xe6\x97\xa5\xe6\x9c\xac\n", 7);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(2, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(0x65E5, buf->lines[0][0]);
+    TEST_ASSERT_EQUAL_INT(0x672C, buf->lines[0][1]);
+    remove(tmp);
+}
+
+void test_load_invalid_utf8_fails(void) {
+    const char *tmp = "/tmp/ef_test_invalid_utf8.txt";
+    write_file(tmp, "a\xffz\n", 4);
+    buffer_insert_char(buf, 0, 0, L'k');
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(-1, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(L'k', buf->lines[0][0]);
+    remove(tmp);
+}
+
+void test_load_embedded_nul_fails(void) {
+    const char *tmp = "/tmp/ef_test_nul.txt";
+    write_file(tmp, "ab\0cd\n", 6);
+    buffer_insert_char(buf, 0, 0, L'k');
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(-1, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(L'k', buf->lines[0][0]);
     remove(tmp);
 }
 
@@ -534,7 +714,20 @@ int main(void) {
     RUN_TEST(test_copy_line_out_of_bounds);
     RUN_TEST(test_insert_line_after);
     RUN_TEST(test_insert_line_before);
+    RUN_TEST(test_delete_range_negative_end_is_safe);
+    RUN_TEST(test_delete_range_start_beyond_end_is_safe);
     RUN_TEST(test_save_and_load);
+    RUN_TEST(test_load_long_line_not_split);
+    RUN_TEST(test_load_failure_keeps_buffer_intact);
+    RUN_TEST(test_new_buffer_saves_trailing_newline);
+    RUN_TEST(test_load_preserves_missing_trailing_newline);
+    RUN_TEST(test_load_newline_only_file);
+    RUN_TEST(test_load_empty_file);
+    RUN_TEST(test_save_long_line_not_truncated);
+    RUN_TEST(test_save_unencodable_char_fails);
+    RUN_TEST(test_load_cjk_line);
+    RUN_TEST(test_load_invalid_utf8_fails);
+    RUN_TEST(test_load_embedded_nul_fails);
     RUN_TEST(test_indent_range_with_tab);
     RUN_TEST(test_indent_range_with_spaces);
     RUN_TEST(test_unindent_tab);

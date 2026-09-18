@@ -33,6 +33,7 @@ Buffer *buffer_new(void) {
     Buffer *buf = xcalloc(1, sizeof(Buffer));
     buf->config.tab_stop = DEFAULT_TAB_STOP;
     buf->config.shift_width = DEFAULT_TAB_STOP;
+    buf->trailing_newline = true;
     /* Start with one empty line */
     buffer_ensure_lines(buf, 1);
     buf->lines[0] = xwcsdup(L"", 0);
@@ -144,45 +145,84 @@ void buffer_splice_lines(Buffer *buf, int start, int delete_count,
 
 /* --- File I/O ------------------------------------------------------------ */
 
-int buffer_load(Buffer *buf) {
-    FILE *f = fopen(buf->filename, "r");
-    if (!f) return -1;
-
-    /* Free existing lines */
-    for (int i = 0; i < buf->line_count; i++) {
-        free(buf->lines[i]);
+/* Convert one NUL-terminated line to wide chars. Returns NULL if the
+   bytes cannot be decoded or contain an embedded NUL. */
+static wchar_t *decode_line(const char *mb_buf, size_t mb_len, int *wlen_out) {
+    size_t wlen = mbstowcs(NULL, mb_buf, 0);
+    if (wlen == (size_t)-1 || strlen(mb_buf) != mb_len) return NULL;
+    wchar_t *wline = xmalloc(sizeof(wchar_t) * (wlen + 1));
+    if (wlen > 0) {
+        mbstowcs(wline, mb_buf, wlen + 1);
     }
-    buf->line_count = 0;
+    wline[wlen] = L'\0';
+    *wlen_out = (int)wlen;
+    return wline;
+}
 
-    char mb_buf[8192];
-    while (fgets(mb_buf, sizeof(mb_buf), f)) {
+static int read_file_lines(FILE *f, wchar_t ***lines_out, int **lens_out,
+                           bool *trailing_newline) {
+    wchar_t **lines = NULL;
+    int *lens = NULL;
+    int count = 0, alloc = 0;
+
+    char *mb_buf = NULL;
+    size_t mb_cap = 0;
+    ssize_t nread;
+    *trailing_newline = true;
+    while ((nread = getline(&mb_buf, &mb_cap, f)) != -1) {
         /* Strip trailing newline */
-        size_t mb_len = strlen(mb_buf);
-        if (mb_len > 0 && mb_buf[mb_len - 1] == '\n') {
+        size_t mb_len = (size_t)nread;
+        *trailing_newline = (mb_len > 0 && mb_buf[mb_len - 1] == '\n');
+        if (*trailing_newline) {
             mb_buf[--mb_len] = '\0';
         }
         if (mb_len > 0 && mb_buf[mb_len - 1] == '\r') {
             mb_buf[--mb_len] = '\0';
         }
 
-        /* Convert to wide chars */
-        size_t wlen = mbstowcs(NULL, mb_buf, 0);
-        if (wlen == (size_t)-1) wlen = 0;
-        wchar_t *wline = xmalloc(sizeof(wchar_t) * (wlen + 1));
-        if (wlen > 0) {
-            mbstowcs(wline, mb_buf, wlen + 1);
+        int wlen;
+        wchar_t *wline = decode_line(mb_buf, mb_len, &wlen);
+        if (!wline) {
+            free(mb_buf);
+            buffer_free_lines(lines, lens, count);
+            return -1;
         }
-        wline[wlen] = L'\0';
 
-        buffer_ensure_lines(buf, buf->line_count + 1);
-        buf->lines[buf->line_count] = wline;
-        buf->line_lens[buf->line_count] = (int)wlen;
-        buf->line_caps[buf->line_count] = (int)(wlen + 1);
-        buf->line_count++;
+        if (count >= alloc) {
+            alloc = alloc == 0 ? 16 : alloc * 2;
+            lines = xrealloc(lines, sizeof(wchar_t *) * alloc);
+            lens = xrealloc(lens, sizeof(int) * alloc);
+        }
+        lines[count] = wline;
+        lens[count] = wlen;
+        count++;
     }
+    free(mb_buf);
 
-    if (ferror(f)) { fclose(f); return -1; }
+    if (ferror(f)) {
+        buffer_free_lines(lines, lens, count);
+        return -1;
+    }
+    *lines_out = lines;
+    *lens_out = lens;
+    return count;
+}
+
+int buffer_load(Buffer *buf) {
+    FILE *f = fopen(buf->filename, "r");
+    if (!f) return -1;
+
+    wchar_t **lines;
+    int *lens;
+    bool trailing_newline;
+    int count = read_file_lines(f, &lines, &lens, &trailing_newline);
     fclose(f);
+    if (count < 0) return -1;
+
+    buffer_replace_all(buf, lines, lens, count);
+    free(lines);
+    free(lens);
+    buf->trailing_newline = trailing_newline;
 
     if (buf->line_count == 0) {
         buffer_ensure_lines(buf, 1);
@@ -201,21 +241,34 @@ int buffer_load(Buffer *buf) {
     return 0;
 }
 
+/* Size of the largest encoded line plus NUL, or 0 if any line cannot
+   be encoded in the current locale. */
+static size_t encoded_line_cap(const Buffer *buf) {
+    size_t cap = 1;
+    for (int i = 0; i < buf->line_count; i++) {
+        size_t n = wcstombs(NULL, buf->lines[i], 0);
+        if (n == (size_t)-1) return 0;
+        if (n + 1 > cap) cap = n + 1;
+    }
+    return cap;
+}
+
 int buffer_save(Buffer *buf) {
     if (!buf->filename) return -1;
+    size_t mb_cap = encoded_line_cap(buf);
+    if (mb_cap == 0) return -1;
     FILE *f = fopen(buf->filename, "w");
     if (!f) return -1;
 
-    char mb_buf[8192];
+    char *mb_buf = xmalloc(mb_cap);
     for (int i = 0; i < buf->line_count; i++) {
-        size_t n = wcstombs(mb_buf, buf->lines[i], sizeof(mb_buf) - 1);
-        if (n == (size_t)-1) n = 0;
-        mb_buf[n] = '\0';
-        if (fputs(mb_buf, f) == EOF) { fclose(f); return -1; }
-        if (i < buf->line_count - 1) {
-            if (fputc('\n', f) == EOF) { fclose(f); return -1; }
+        wcstombs(mb_buf, buf->lines[i], mb_cap);
+        if (fputs(mb_buf, f) == EOF) { free(mb_buf); fclose(f); return -1; }
+        if (i < buf->line_count - 1 || buf->trailing_newline) {
+            if (fputc('\n', f) == EOF) { free(mb_buf); fclose(f); return -1; }
         }
     }
+    free(mb_buf);
 
     fclose(f);
 
@@ -484,8 +537,11 @@ void buffer_insert_line_before(Buffer *buf, int row, wchar_t *line, int line_len
 
 static void clamp_range(const Buffer *buf, int *sr, int *sc, int *er, int *ec) {
     if (*sr < 0) *sr = 0;
+    if (*er < 0) *er = 0;
+    if (*sr >= buf->line_count) *sr = buf->line_count - 1;
     if (*er >= buf->line_count) *er = buf->line_count - 1;
     if (*sc < 0) *sc = 0;
+    if (*ec < 0) *ec = 0;
     if (*sc > buf->line_lens[*sr]) *sc = buf->line_lens[*sr];
     if (*ec > buf->line_lens[*er]) *ec = buf->line_lens[*er];
 }
