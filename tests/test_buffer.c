@@ -329,6 +329,29 @@ void test_load_empty_file(void) {
     remove(tmp);
 }
 
+void test_save_long_line_not_truncated(void) {
+    const char *tmp = "/tmp/ef_test_save_long.txt";
+    wchar_t *line = malloc(sizeof(wchar_t) * 10001);
+    wmemset(line, L'x', 10000);
+    line[10000] = L'\0';
+    buffer_set_line(buf, 0, line, 10000);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_save(buf));
+
+    struct stat st;
+    TEST_ASSERT_EQUAL_INT(0, stat(tmp, &st));
+    TEST_ASSERT_EQUAL_INT(10001, (int)st.st_size);
+    remove(tmp);
+}
+
+void test_save_unencodable_char_fails(void) {
+    const char *tmp = "/tmp/ef_test_save_bad.txt";
+    buffer_insert_char(buf, 0, 0, (wchar_t)0xD800);
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(-1, buffer_save(buf));
+    remove(tmp);
+}
+
 void test_load_cjk_line(void) {
     const char *tmp = "/tmp/ef_test_cjk.txt";
     write_file(tmp, "\xe6\x97\xa5\xe6\x9c\xac\n", 7);
@@ -663,6 +686,8 @@ int main(void) {
     RUN_TEST(test_load_preserves_missing_trailing_newline);
     RUN_TEST(test_load_newline_only_file);
     RUN_TEST(test_load_empty_file);
+    RUN_TEST(test_save_long_line_not_truncated);
+    RUN_TEST(test_save_unencodable_char_fails);
     RUN_TEST(test_load_cjk_line);
     RUN_TEST(test_load_invalid_utf8_fails);
     RUN_TEST(test_load_embedded_nul_fails);

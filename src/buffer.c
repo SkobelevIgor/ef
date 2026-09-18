@@ -236,12 +236,14 @@ int buffer_save(Buffer *buf) {
     FILE *f = fopen(buf->filename, "w");
     if (!f) return -1;
 
-    char mb_buf[8192];
     for (int i = 0; i < buf->line_count; i++) {
-        size_t n = wcstombs(mb_buf, buf->lines[i], sizeof(mb_buf) - 1);
-        if (n == (size_t)-1) n = 0;
-        mb_buf[n] = '\0';
-        if (fputs(mb_buf, f) == EOF) { fclose(f); return -1; }
+        size_t n = wcstombs(NULL, buf->lines[i], 0);
+        if (n == (size_t)-1) { fclose(f); return -1; }
+        char *mb_buf = xmalloc(n + 1);
+        wcstombs(mb_buf, buf->lines[i], n + 1);
+        int rc = fputs(mb_buf, f);
+        free(mb_buf);
+        if (rc == EOF) { fclose(f); return -1; }
         if (i < buf->line_count - 1 || buf->trailing_newline) {
             if (fputc('\n', f) == EOF) { fclose(f); return -1; }
         }
