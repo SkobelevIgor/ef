@@ -317,6 +317,21 @@ void test_ensure_default_creates_file(void) {
     unlink(path);
 }
 
+void test_ensure_default_contains_yaml(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "/tmp/ef_ensure_yaml_%d.json", getpid());
+    unlink(path);
+    TEST_ASSERT_TRUE(config_ensure_default(path));
+
+    EditorConfig *cfg = config_load(path);
+    TEST_ASSERT_NOT_NULL(cfg);
+    const EditorFileTypeConfig *yaml = config_get_file_type(cfg, "yaml");
+    TEST_ASSERT_NOT_NULL(yaml);
+    TEST_ASSERT_EQUAL_STRING("yaml", config_detect_file_type(cfg, "a.yml"));
+    config_free(cfg);
+    unlink(path);
+}
+
 void test_ensure_default_skips_existing(void) {
     char path[256];
     snprintf(path, sizeof(path), "/tmp/ef_ensure_%d.json", getpid());
@@ -446,6 +461,7 @@ int main(void) {
     RUN_TEST(test_load_trailing_comma_in_array);
     RUN_TEST(test_load_comma_in_string_preserved);
     RUN_TEST(test_ensure_default_creates_file);
+    RUN_TEST(test_ensure_default_contains_yaml);
     RUN_TEST(test_ensure_default_skips_existing);
     RUN_TEST(test_ensure_default_null_uses_home);
     RUN_TEST(test_ensure_default_bad_path);
