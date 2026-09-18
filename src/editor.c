@@ -96,7 +96,12 @@ Editor *editor_new(FileInfo *files, int file_count, SplitMode split_mode) {
         }
         if (!buf) {
             buf = buffer_new_from_file(files[i].filename);
-            if (!buf) continue;
+            if (!buf) {
+                for (int j = 0; j < pane_count; j++) pane_free(panes[j]);
+                for (int j = 0; j < buf_count; j++) buffer_free(buffers[j]);
+                pane_count = 0;
+                break;
+            }
             buffers[buf_count++] = buf;
         }
         Pane *p;
