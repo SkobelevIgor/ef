@@ -241,23 +241,34 @@ int buffer_load(Buffer *buf) {
     return 0;
 }
 
+/* Size of the largest encoded line plus NUL, or 0 if any line cannot
+   be encoded in the current locale. */
+static size_t encoded_line_cap(const Buffer *buf) {
+    size_t cap = 1;
+    for (int i = 0; i < buf->line_count; i++) {
+        size_t n = wcstombs(NULL, buf->lines[i], 0);
+        if (n == (size_t)-1) return 0;
+        if (n + 1 > cap) cap = n + 1;
+    }
+    return cap;
+}
+
 int buffer_save(Buffer *buf) {
     if (!buf->filename) return -1;
+    size_t mb_cap = encoded_line_cap(buf);
+    if (mb_cap == 0) return -1;
     FILE *f = fopen(buf->filename, "w");
     if (!f) return -1;
 
+    char *mb_buf = xmalloc(mb_cap);
     for (int i = 0; i < buf->line_count; i++) {
-        size_t n = wcstombs(NULL, buf->lines[i], 0);
-        if (n == (size_t)-1) { fclose(f); return -1; }
-        char *mb_buf = xmalloc(n + 1);
-        wcstombs(mb_buf, buf->lines[i], n + 1);
-        int rc = fputs(mb_buf, f);
-        free(mb_buf);
-        if (rc == EOF) { fclose(f); return -1; }
+        wcstombs(mb_buf, buf->lines[i], mb_cap);
+        if (fputs(mb_buf, f) == EOF) { free(mb_buf); fclose(f); return -1; }
         if (i < buf->line_count - 1 || buf->trailing_newline) {
-            if (fputc('\n', f) == EOF) { fclose(f); return -1; }
+            if (fputc('\n', f) == EOF) { free(mb_buf); fclose(f); return -1; }
         }
     }
+    free(mb_buf);
 
     fclose(f);
 

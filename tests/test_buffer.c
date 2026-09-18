@@ -363,9 +363,12 @@ void test_save_long_line_not_truncated(void) {
 
 void test_save_unencodable_char_fails(void) {
     const char *tmp = "/tmp/ef_test_save_bad.txt";
+    write_file(tmp, "keep\n", 5);
     buffer_insert_char(buf, 0, 0, (wchar_t)0xD800);
     buf->filename = strdup(tmp);
     TEST_ASSERT_EQUAL_INT(-1, buffer_save(buf));
+    TEST_ASSERT_TRUE(buf->modified);
+    assert_file_equals(tmp, "keep\n");
     remove(tmp);
 }
 
