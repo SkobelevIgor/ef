@@ -241,6 +241,29 @@ void test_save_and_load(void) {
     remove(tmp);
 }
 
+static void write_file(const char *path, const char *data, size_t len) {
+    FILE *f = fopen(path, "wb");
+    TEST_ASSERT_NOT_NULL(f);
+    TEST_ASSERT_EQUAL_INT(len, fwrite(data, 1, len, f));
+    fclose(f);
+}
+
+void test_load_long_line_not_split(void) {
+    const char *tmp = "/tmp/ef_test_long_line.txt";
+    char *data = malloc(10001);
+    memset(data, 'x', 10000);
+    data[10000] = '\n';
+    write_file(tmp, data, 10001);
+    free(data);
+
+    buf->filename = strdup(tmp);
+    TEST_ASSERT_EQUAL_INT(0, buffer_load(buf));
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(10000, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(L'x', buf->lines[0][9999]);
+    remove(tmp);
+}
+
 /* --- NewlineWithIndent tests --------------------------------------------- */
 
 void test_newline_with_indent_at_end_of_indented_line(void) {
@@ -535,6 +558,7 @@ int main(void) {
     RUN_TEST(test_insert_line_after);
     RUN_TEST(test_insert_line_before);
     RUN_TEST(test_save_and_load);
+    RUN_TEST(test_load_long_line_not_split);
     RUN_TEST(test_indent_range_with_tab);
     RUN_TEST(test_indent_range_with_spaces);
     RUN_TEST(test_unindent_tab);

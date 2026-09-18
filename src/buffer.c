@@ -154,10 +154,12 @@ int buffer_load(Buffer *buf) {
     }
     buf->line_count = 0;
 
-    char mb_buf[8192];
-    while (fgets(mb_buf, sizeof(mb_buf), f)) {
+    char *mb_buf = NULL;
+    size_t mb_cap = 0;
+    ssize_t nread;
+    while ((nread = getline(&mb_buf, &mb_cap, f)) != -1) {
         /* Strip trailing newline */
-        size_t mb_len = strlen(mb_buf);
+        size_t mb_len = (size_t)nread;
         if (mb_len > 0 && mb_buf[mb_len - 1] == '\n') {
             mb_buf[--mb_len] = '\0';
         }
@@ -180,6 +182,7 @@ int buffer_load(Buffer *buf) {
         buf->line_caps[buf->line_count] = (int)(wlen + 1);
         buf->line_count++;
     }
+    free(mb_buf);
 
     if (ferror(f)) { fclose(f); return -1; }
     fclose(f);
