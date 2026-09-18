@@ -382,7 +382,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                    && screen_row < pane_h) {
                 if (!first_wrap) {
                     /* Wrap indicator */
-                    char wrap_buf[16];
+                    char wrap_buf[80];
                     snprintf(wrap_buf, sizeof(wrap_buf), "%*s\xe2\x86\xaa ",
                              ln_w - 2, ""); /* ↪ in UTF-8 */
                     int wp = is_current ? cur_ln_pair : PAIR_WRAP_INDIC;
