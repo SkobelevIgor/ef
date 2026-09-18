@@ -504,9 +504,8 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
 static int ncurses_poll_event(void *self, EditorEvent *ev) {
     NcursesScreen *ns = (NcursesScreen *)self;
     timeout(1000);
-    wint_t wch;
+    wint_t wch = 0;
     int rc = wget_wch(stdscr, &wch);
-    ev->key = (int)wch;
     ev->is_paste = false;
 
     if (rc == ERR) {
@@ -515,8 +514,9 @@ static int ncurses_poll_event(void *self, EditorEvent *ev) {
         ev->is_char = false;
         return 0;
     }
+    ev->key = (int)wch;
 
-    if (ev->key == KEY_RESIZE) {
+    if (rc == KEY_CODE_YES && ev->key == KEY_RESIZE) {
         ev->type = EV_RESIZE;
         ev->is_char = false;
         return 0;
