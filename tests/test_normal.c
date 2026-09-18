@@ -123,6 +123,31 @@ void test_dd_overwrites_clipboard(void) {
     TEST_ASSERT_EQUAL_INT(0, wmemcmp(ed->clipboard->lines[0], L"bbb", 3));
 }
 
+void test_dd_count_beyond_end_is_bounded(void) {
+    const wchar_t *lines[] = {L"a", L"b", L"c"};
+    setup_editor(lines, 3);
+
+    send_char(L'5');
+    send_char(L'd');
+    send_char(L'd');
+    TEST_ASSERT_EQUAL_INT(1, buf->line_count);
+    TEST_ASSERT_EQUAL_INT(0, buf->line_lens[0]);
+    TEST_ASSERT_EQUAL_INT(3, ed->clipboard->line_count);
+    TEST_ASSERT_EQUAL_INT(3, ed->history->undo_stack[0]->text_count);
+}
+
+void test_yy_count_beyond_end_is_bounded(void) {
+    const wchar_t *lines[] = {L"a", L"b", L"c"};
+    setup_editor(lines, 3);
+    editor_active_pane(ed)->cursor_row = 1;
+
+    send_char(L'5');
+    send_char(L'y');
+    send_char(L'y');
+    TEST_ASSERT_EQUAL_INT(2, ed->clipboard->line_count);
+    TEST_ASSERT_EQUAL_INT(3, buf->line_count);
+}
+
 void test_x_cuts_to_clipboard(void) {
     const wchar_t *lines[] = {L"hello"};
     setup_editor(lines, 1);
@@ -507,6 +532,8 @@ int main(void) {
     RUN_TEST(test_dd_overwrites_clipboard);
     RUN_TEST(test_yy_yanks_line);
     RUN_TEST(test_x_deletes_char);
+    RUN_TEST(test_dd_count_beyond_end_is_bounded);
+    RUN_TEST(test_yy_count_beyond_end_is_bounded);
     RUN_TEST(test_x_cuts_to_clipboard);
     RUN_TEST(test_dw_cuts_to_clipboard);
     RUN_TEST(test_db_cuts_to_clipboard);

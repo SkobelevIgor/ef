@@ -246,14 +246,15 @@ static bool handle_normal_rune(Editor *ed, wchar_t r) {
     case L'x': {
         if (ed->read_only) break;
         int start_col = pane->cursor_col;
+        int remaining = buf->line_lens[pane->cursor_row] - start_col;
+        if (count > remaining) count = remaining;
+        if (count <= 0) break;
         wchar_t *deleted_chars = xmalloc(sizeof(wchar_t) * count);
         int del_count = 0;
         for (int i = 0; i < count; i++) {
-            if (pane->cursor_col < buf->line_lens[pane->cursor_row]) {
-                wchar_t d = buffer_delete_char_at(buf, pane->cursor_row,
-                                                  pane->cursor_col);
-                if (d != 0) deleted_chars[del_count++] = d;
-            }
+            wchar_t d = buffer_delete_char_at(buf, pane->cursor_row,
+                                              pane->cursor_col);
+            if (d != 0) deleted_chars[del_count++] = d;
         }
         if (del_count > 0) {
             clipboard_set(ed->clipboard, &deleted_chars, &del_count, 1, false);
@@ -299,10 +300,12 @@ static void handle_op_dd(Editor *ed, int count) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
     int start_row = pane->cursor_row;
+    int remaining = buf->line_count - start_row;
+    if (count > remaining) count = remaining;
     wchar_t **deleted = xmalloc(sizeof(wchar_t *) * count);
     int *del_lens = xmalloc(sizeof(int) * count);
     int actual = 0;
-    for (int i = 0; i < count && pane->cursor_row < buf->line_count; i++) {
+    for (int i = 0; i < count; i++) {
         deleted[i] = buffer_delete_line(buf, pane->cursor_row, &del_lens[i]);
         actual++;
     }
@@ -319,11 +322,12 @@ static void handle_op_dd(Editor *ed, int count) {
 static void handle_op_yy(Editor *ed, int count) {
     Pane *pane = editor_active_pane(ed);
     Buffer *buf = pane->buffer;
+    int remaining = buf->line_count - pane->cursor_row;
+    if (count > remaining) count = remaining;
     wchar_t **yanked = xmalloc(sizeof(wchar_t *) * count);
     int *yank_lens = xmalloc(sizeof(int) * count);
     int actual = 0;
-    for (int i = 0; i < count
-             && pane->cursor_row + i < buf->line_count; i++) {
+    for (int i = 0; i < count; i++) {
         yanked[i] = buffer_copy_line(buf, pane->cursor_row + i,
                                      &yank_lens[i]);
         actual++;
