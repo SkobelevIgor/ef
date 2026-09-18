@@ -26,7 +26,7 @@ static void refresh_session_matches(Editor *ed, WidgetSession *s) {
     s->matches = buffer_find_all_matches(buf, s->query, s->query_len, &s->match_count);
     s->no_matches = (s->match_count == 0);
     if (s->match_count == 0) { s->current_index = -1; return; }
-    if (s->current_index >= s->match_count) {
+    if (s->current_index < 0 || s->current_index >= s->match_count) {
         s->current_index = find_first_match_after_cursor(
             s->matches, s->match_count, s->cursor_row, s->cursor_col);
     }

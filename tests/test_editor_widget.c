@@ -716,6 +716,29 @@ void test_dual_sessions_independent(void) {
     TEST_ASSERT_TRUE(editor_active_pane(ed)->widget->find_replace_session->query[0] == L'w');
 }
 
+void test_switch_back_recovers_from_no_matches(void) {
+    const wchar_t *lines[] = {L"hello world"};
+    setup_editor(lines, 1);
+
+    editor_open_find_replace_widget(ed);
+    for (const wchar_t *c = L"xyz"; *c; c++) {
+        EditorEvent ev = make_char_event(*c);
+        editor_handle_widget_mode(ed, &ev);
+    }
+    WidgetSession *s = editor_active_pane(ed)->widget->find_replace_session;
+    TEST_ASSERT_EQUAL_INT(-1, s->current_index);
+
+    /* Switch away, make the text match, switch back */
+    editor_open_search_widget(ed);
+    wchar_t *l = malloc(sizeof(wchar_t) * 4);
+    wmemcpy(l, L"xyz", 3); l[3] = L'\0';
+    buffer_set_line(buf, 0, l, 3);
+    editor_open_find_replace_widget(ed);
+
+    TEST_ASSERT_EQUAL_INT(1, s->match_count);
+    TEST_ASSERT_EQUAL_INT(0, s->current_index);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -758,6 +781,7 @@ int main(void) {
     RUN_TEST(test_f4_during_find_replace_switches);
     /* Dual sessions */
     RUN_TEST(test_dual_sessions_independent);
+    RUN_TEST(test_switch_back_recovers_from_no_matches);
     /* Real ncurses key behavior (is_char=true for control chars) */
     RUN_TEST(test_escape_as_char_closes_widget);
     RUN_TEST(test_enter_as_char_confirms_search);
