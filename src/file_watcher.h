@@ -2,6 +2,7 @@
 #define EF_FILE_WATCHER_H
 
 #include <stdbool.h>
+#include <sys/types.h>
 #include <time.h>
 
 #define MAX_WATCHED_FILES 64
@@ -9,6 +10,8 @@
 typedef struct {
     char  *filename;
     time_t last_mod_time;
+    long   last_mod_nsec;
+    off_t  last_size;
 } WatchedFile;
 
 /* FileWatcherVTable abstracts file watching (dependency inversion). */

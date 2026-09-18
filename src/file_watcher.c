@@ -5,6 +5,24 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#ifdef __APPLE__
+#define EF_ST_MTIM st_mtimespec
+#else
+#define EF_ST_MTIM st_mtim
+#endif
+
+static void fw_record(WatchedFile *wf, const struct stat *st) {
+    wf->last_mod_time = st->st_mtime;
+    wf->last_mod_nsec = st->EF_ST_MTIM.tv_nsec;
+    wf->last_size = st->st_size;
+}
+
+static bool fw_changed(const WatchedFile *wf, const struct stat *st) {
+    return st->st_mtime != wf->last_mod_time
+        || st->EF_ST_MTIM.tv_nsec != wf->last_mod_nsec
+        || st->st_size != wf->last_size;
+}
+
 /* --- Pure functions (testable) ------------------------------------------- */
 
 int fw_find_file(FileWatcher *fw, const char *filename) {
@@ -26,9 +44,11 @@ void fw_watch(FileWatcher *fw, const char *filename) {
 
     struct stat st;
     if (stat(filename, &st) == 0) {
-        wf->last_mod_time = st.st_mtime;
+        fw_record(wf, &st);
     } else {
         wf->last_mod_time = 0;
+        wf->last_mod_nsec = 0;
+        wf->last_size = 0;
     }
     fw->file_count++;
 }
@@ -39,8 +59,8 @@ const char *fw_check(FileWatcher *fw) {
         struct stat st;
         if (stat(fw->files[i].filename, &st) != 0)
             continue;
-        if (st.st_mtime > fw->files[i].last_mod_time) {
-            fw->files[i].last_mod_time = st.st_mtime;
+        if (fw_changed(&fw->files[i], &st)) {
+            fw_record(&fw->files[i], &st);
             return fw->files[i].filename;
         }
     }
@@ -54,7 +74,7 @@ void fw_update_mod_time(FileWatcher *fw, const char *filename) {
 
     struct stat st;
     if (stat(filename, &st) == 0) {
-        fw->files[idx].last_mod_time = st.st_mtime;
+        fw_record(&fw->files[idx], &st);
     }
 }
 

@@ -122,6 +122,26 @@ void test_check_deleted_file(void) {
     TEST_ASSERT_NULL(changed);
 }
 
+void test_check_detects_same_second_size_change(void) {
+    create_tmp_file("hello");
+    fw_watch(fw, tmpfile_path);
+    FILE *f = fopen(tmpfile_path, "w");
+    fprintf(f, "hello world");
+    fclose(f);
+    const char *changed = fw_check(fw);
+    TEST_ASSERT_NOT_NULL(changed);
+}
+
+void test_check_detects_same_second_same_size_change(void) {
+    create_tmp_file("hello");
+    fw_watch(fw, tmpfile_path);
+    FILE *f = fopen(tmpfile_path, "w");
+    fprintf(f, "world");
+    fclose(f);
+    const char *changed = fw_check(fw);
+    TEST_ASSERT_NOT_NULL(changed);
+}
+
 /* --- fw_update_mod_time tests -------------------------------------------- */
 
 void test_update_mod_time_after_save(void) {
@@ -167,6 +187,8 @@ int main(void) {
     RUN_TEST(test_check_detects_external_change);
     RUN_TEST(test_check_empty_watcher);
     RUN_TEST(test_check_deleted_file);
+    RUN_TEST(test_check_detects_same_second_size_change);
+    RUN_TEST(test_check_detects_same_second_same_size_change);
     /* update */
     RUN_TEST(test_update_mod_time_after_save);
     RUN_TEST(test_update_mod_time_unknown_file);
