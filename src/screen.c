@@ -367,6 +367,7 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
 
             /* Draw text with wrapping */
             int char_idx = 0;
+            int vis = 0;
             bool first_wrap = true;
             while (char_idx < buf->line_lens[line_idx]
                    && screen_row < pane_h) {
@@ -385,9 +386,9 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                 int tab_stop = buf->config.tab_stop;
                 if (tab_stop <= 0) tab_stop = DEFAULT_TAB_STOP;
 
-                int col = 0;
+                int wrap_row = vis / text_w;
                 int text_x = lay->start_x + ln_w;
-                while (col < text_w
+                while (vis / text_w == wrap_row
                        && char_idx < buf->line_lens[line_idx]) {
                     wchar_t ch = buf->lines[line_idx][char_idx];
 
@@ -417,19 +418,21 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                     }
 
                     if (ch == L'\t') {
-                        int spaces = tab_stop - (col % tab_stop);
-                        for (int s = 0; s < spaces && col < text_w; s++) {
+                        int spaces = tab_stop - (vis % tab_stop);
+                        int s;
+                        for (s = 0; s < spaces && vis / text_w == wrap_row; s++) {
                             mvaddch(pane_y + screen_row,
-                                    text_x + col,
+                                    text_x + vis % text_w,
                                     ' ' | char_attr | COLOR_PAIR(char_pair));
-                            col++;
+                            vis++;
                         }
+                        if (s < spaces) break;
                     } else {
                         cchar_t cc;
                         set_cell(&cc, ch, char_attr, char_pair);
                         mvadd_wch(pane_y + screen_row,
-                                  text_x + col, &cc);
-                        col += rune_width(ch);
+                                  text_x + vis % text_w, &cc);
+                        vis += rune_width(ch);
                     }
                     char_idx++;
                 }
