@@ -7,6 +7,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
+static int check_readable(const char *filename) {
+    struct stat st;
+    if (stat(filename, &st) != 0) return 0;  /* file doesn't exist – OK */
+    if (!S_ISREG(st.st_mode)) {
+        fprintf(stderr, "ef: cannot open %s: not a regular file\n", filename);
+        return -1;
+    }
+    if (access(filename, R_OK) != 0) {
+        fprintf(stderr, "ef: cannot open %s: %s\n", filename, strerror(errno));
+        return -1;
+    }
+    return 0;
+}
 
 static void parse_file_arg(const char *arg, char **filename, int *line) {
     *line = 0;
@@ -76,6 +93,14 @@ int main(int argc, char *argv[]) {
     FileInfo *files = xmalloc(sizeof(FileInfo) * nargs);
     for (int i = 0; i < nargs; i++) {
         parse_file_arg(args[i], &files[i].filename, &files[i].line);
+    }
+
+    for (int i = 0; i < nargs; i++) {
+        if (check_readable(files[i].filename) != 0) {
+            for (int j = 0; j < nargs; j++) free(files[j].filename);
+            free(files);
+            return 1;
+        }
     }
 
     if (!read_only) {

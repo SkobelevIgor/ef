@@ -107,6 +107,11 @@ Editor *editor_new(FileInfo *files, int file_count, SplitMode split_mode) {
         }
         panes[pane_count++] = p;
     }
+    if (pane_count == 0) {
+        scr->close(scr->impl);
+        ncurses_screen_free(scr);
+        return NULL;
+    }
 
     Editor *ed = editor_new_with_deps(scr, buffers, panes, pane_count,
                                       split_mode);
