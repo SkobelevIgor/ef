@@ -87,14 +87,14 @@ PaneLayout *calculate_pane_layout_vertical(int num_panes, int width,
 
 void calc_cursor_screen_pos(wchar_t **lines, const int *line_lens,
                             int cursor_row, int cursor_col,
-                            int scroll_offset, int pane_width,
-                            int ln_width, int tab_stop,
+                            int scroll_offset, int scroll_wrap,
+                            int pane_width, int ln_width, int tab_stop,
                             int *sx, int *sy) {
     int text_width = pane_width - ln_width;
     if (text_width < 1) text_width = 1;
     if (tab_stop <= 0) tab_stop = DEFAULT_TAB_STOP;
 
-    *sy = 0;
+    *sy = -scroll_wrap;
     for (int i = scroll_offset; i < cursor_row; i++) {
         int vw = visual_line_width(lines[i], line_lens[i], tab_stop);
         *sy += (vw == 0) ? 1 : (vw + text_width - 1) / text_width;
@@ -336,6 +336,11 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
              line_idx < buf->line_count && screen_row < pane_h;
              line_idx++) {
             bool is_current = (line_idx == pane->cursor_row);
+            int skip_rows = (line_idx == pane->scroll_offset)
+                ? pane->scroll_wrap : 0;
+            bool goto_prompt = is_current && i == active && input
+                && input->pending_goto_line;
+            bool show_num = skip_rows == 0 || goto_prompt;
             int line_num;
             int ln_pair;
             if (is_current) {
@@ -349,16 +354,17 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
 
             /* Draw line number (or goto-line indicator) */
             char num_buf[128];
-            if (is_current && i == active && input
-                && input->pending_goto_line) {
+            if (goto_prompt) {
                 snprintf(num_buf, sizeof(num_buf), ":%-*s",
                          ln_w - 1, input->goto_line_buffer);
             } else {
                 snprintf(num_buf, sizeof(num_buf), "%*d ", ln_w - 1, line_num);
             }
-            attron(COLOR_PAIR(ln_pair) | (is_current ? A_BOLD : 0));
-            mvaddstr(pane_y + screen_row, lay->start_x, num_buf);
-            attroff(COLOR_PAIR(ln_pair) | (is_current ? A_BOLD : 0));
+            if (show_num) {
+                attron(COLOR_PAIR(ln_pair) | (is_current ? A_BOLD : 0));
+                mvaddstr(pane_y + screen_row, lay->start_x, num_buf);
+                attroff(COLOR_PAIR(ln_pair) | (is_current ? A_BOLD : 0));
+            }
 
             if (buf->line_lens[line_idx] == 0) {
                 screen_row++;
@@ -378,7 +384,16 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
             /* Draw text with wrapping */
             int char_idx = 0;
             int vis = 0;
-            bool first_wrap = true;
+            bool first_wrap = show_num;
+            int tab_stop = buf->config.tab_stop;
+            if (tab_stop <= 0) tab_stop = DEFAULT_TAB_STOP;
+            while (char_idx < buf->line_lens[line_idx]
+                   && vis / text_w < skip_rows) {
+                wchar_t ch = buf->lines[line_idx][char_idx];
+                vis += (ch == L'\t') ? tab_stop - (vis % tab_stop)
+                                     : rune_width(ch);
+                char_idx++;
+            }
             while (char_idx < buf->line_lens[line_idx]
                    && screen_row < pane_h) {
                 if (!first_wrap) {
@@ -392,9 +407,6 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
                     attroff(COLOR_PAIR(wp));
                 }
                 first_wrap = false;
-
-                int tab_stop = buf->config.tab_stop;
-                if (tab_stop <= 0) tab_stop = DEFAULT_TAB_STOP;
 
                 int wrap_row = vis / text_w;
                 int text_x = lay->start_x + ln_w;
@@ -501,7 +513,8 @@ static void ncurses_render(void *self, Pane **panes, int npanes, int active,
             int cx, cy;
             calc_cursor_screen_pos(ap->buffer->lines, ap->buffer->line_lens,
                                    ap->cursor_row, ap->cursor_col,
-                                   ap->scroll_offset, al->width, ln_w,
+                                   ap->scroll_offset, ap->scroll_wrap,
+                                   al->width, ln_w,
                                    ap->buffer->config.tab_stop, &cx, &cy);
             move(al->start_y + active_bar_h + cy, al->start_x + cx);
             curs_set(1);

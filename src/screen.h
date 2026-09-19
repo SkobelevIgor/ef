@@ -66,7 +66,8 @@ int line_number_width(int total_lines);
 /* Cursor screen position calculation. */
 void calc_cursor_screen_pos(wchar_t **lines, const int *line_lens,
                             int cursor_row, int cursor_col,
-                            int scroll_offset, int pane_width,
+                            int scroll_offset, int scroll_wrap,
+                            int pane_width,
                             int line_num_width, int tab_stop,
                             int *screen_x, int *screen_y);
 

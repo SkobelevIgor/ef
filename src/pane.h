@@ -14,6 +14,7 @@ typedef struct Pane {
     int cursor_row;
     int cursor_col;
     int scroll_offset;
+    int scroll_wrap;  /* Wrap rows of line scroll_offset hidden above the view */
 
     bool selection_active;
     int  selection_start_row;

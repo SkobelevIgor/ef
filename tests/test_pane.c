@@ -238,6 +238,81 @@ void test_clamp_cursor_clamps_selection_anchor(void) {
     TEST_ASSERT_EQUAL_INT(1, pane->selection_start_col);
 }
 
+static void setup_long_line(int len) {
+    wchar_t *l = malloc(sizeof(wchar_t) * (len + 1));
+    for (int i = 0; i < len; i++) l[i] = L'a' + (i % 26);
+    l[len] = L'\0';
+    const wchar_t *lines[] = {L"short"};
+    setup_buffer(lines, 1);
+    buffer_insert_line_after(buf, 0, l, len);
+}
+
+void test_adjust_scroll_long_line_scrolls_wrap_rows(void) {
+    /* 100 wrap rows of width 10; screen 5 rows -> margin 2 */
+    setup_long_line(1000);
+    pane->cursor_row = 1;
+    pane->cursor_col = 999;
+    pane_adjust_scroll(pane, 10, 5);
+    TEST_ASSERT_EQUAL_INT(1, pane->scroll_offset);
+    TEST_ASSERT_EQUAL_INT(97, pane->scroll_wrap);
+}
+
+void test_adjust_scroll_long_line_scrolls_back_to_start(void) {
+    setup_long_line(1000);
+    pane->cursor_row = 1;
+    pane->cursor_col = 999;
+    pane_adjust_scroll(pane, 10, 5);
+    pane->cursor_col = 0;
+    pane_adjust_scroll(pane, 10, 5);
+    TEST_ASSERT_EQUAL_INT(0, pane->scroll_offset);
+    TEST_ASSERT_EQUAL_INT(0, pane->scroll_wrap);
+}
+
+void test_adjust_scroll_moving_up_reveals_wrap_rows(void) {
+    setup_long_line(1000);
+    pane->cursor_row = 1;
+    pane->cursor_col = 999;
+    pane_adjust_scroll(pane, 10, 5);
+    pane->cursor_col = 950; /* wrap row 95, two rows above the view top */
+    pane_adjust_scroll(pane, 10, 5);
+    TEST_ASSERT_EQUAL_INT(1, pane->scroll_offset);
+    TEST_ASSERT_EQUAL_INT(93, pane->scroll_wrap);
+}
+
+void test_adjust_scroll_short_lines_unchanged(void) {
+    const wchar_t *lines[] = {L"a", L"b", L"c", L"d", L"e", L"f", L"g", L"h"};
+    setup_buffer(lines, 8);
+    pane->cursor_row = 7;
+    pane_adjust_scroll(pane, 10, 5);
+    TEST_ASSERT_EQUAL_INT(5, pane->scroll_offset);
+    TEST_ASSERT_EQUAL_INT(0, pane->scroll_wrap);
+}
+
+void test_adjust_scroll_clamps_stale_wrap_on_top_line(void) {
+    /* long line (100 rows) first, then short lines; cursor inside margin */
+    const wchar_t *lines[] = {L"x", L"a", L"b", L"c", L"d", L"e",
+                              L"f", L"g", L"h", L"i", L"j", L"k"};
+    setup_buffer(lines, 12);
+    wchar_t *l = malloc(sizeof(wchar_t) * 1001);
+    for (int i = 0; i < 1000; i++) l[i] = L'a';
+    l[1000] = L'\0';
+    buffer_set_line(buf, 0, l, 1000);
+    pane->cursor_row = 8;
+    pane->scroll_wrap = 105; /* stale: line 0 only has 100 rows */
+    pane_adjust_scroll(pane, 10, 5);
+    TEST_ASSERT_EQUAL_INT(6, pane->scroll_offset);
+    TEST_ASSERT_EQUAL_INT(0, pane->scroll_wrap);
+}
+
+void test_adjust_scroll_height_one_cursor_at_wrap_boundary(void) {
+    const wchar_t *lines[] = {L"abcdefghij"};
+    setup_buffer(lines, 1);
+    pane->cursor_col = 10; /* visual col 10 == text width: phantom row */
+    pane_adjust_scroll(pane, 10, 1);
+    TEST_ASSERT_EQUAL_INT(0, pane->scroll_offset);
+    TEST_ASSERT_EQUAL_INT(0, pane->scroll_wrap);
+}
+
 int main(void) {
     setlocale(LC_ALL, "");
     UNITY_BEGIN();
@@ -265,5 +340,11 @@ int main(void) {
     RUN_TEST(test_adjust_cursor_for_insert);
     RUN_TEST(test_adjust_cursor_for_delete);
     RUN_TEST(test_clamp_cursor_clamps_selection_anchor);
+    RUN_TEST(test_adjust_scroll_long_line_scrolls_wrap_rows);
+    RUN_TEST(test_adjust_scroll_long_line_scrolls_back_to_start);
+    RUN_TEST(test_adjust_scroll_moving_up_reveals_wrap_rows);
+    RUN_TEST(test_adjust_scroll_short_lines_unchanged);
+    RUN_TEST(test_adjust_scroll_clamps_stale_wrap_on_top_line);
+    RUN_TEST(test_adjust_scroll_height_one_cursor_at_wrap_boundary);
     return UNITY_END();
 }

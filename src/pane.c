@@ -77,6 +77,41 @@ void pane_adjust_cursor_for_edit(Pane *p, int edit_row, int lines_delta) {
     pane_clamp_cursor(p);
 }
 
+static int line_rows(const Pane *p, int row, int text_width) {
+    int vw = buffer_get_visual_line_width(p->buffer,
+        p->buffer->lines[row], p->buffer->line_lens[row]);
+    return (vw == 0) ? 1 : (vw + text_width - 1) / text_width;
+}
+
+static void clamp_scroll_wrap(Pane *p, int text_width) {
+    int max_wrap = line_rows(p, p->scroll_offset, text_width) - 1;
+    if (p->scroll_wrap > max_wrap) p->scroll_wrap = max_wrap;
+}
+
+/* Scroll the view down by n visual rows, never past the cursor row. */
+static void scroll_down_rows(Pane *p, int text_width, int n) {
+    while (n > 0 && p->scroll_offset < p->cursor_row) {
+        int avail = line_rows(p, p->scroll_offset, text_width) - p->scroll_wrap;
+        if (avail > n) {
+            p->scroll_wrap += n;
+            return;
+        }
+        n -= avail;
+        p->scroll_offset++;
+        p->scroll_wrap = 0;
+    }
+    p->scroll_wrap += n;
+}
+
+static void scroll_up_row(Pane *p, int text_width) {
+    if (p->scroll_wrap > 0) {
+        p->scroll_wrap--;
+    } else if (p->scroll_offset > 0) {
+        p->scroll_offset--;
+        p->scroll_wrap = line_rows(p, p->scroll_offset, text_width) - 1;
+    }
+}
+
 void pane_adjust_scroll(Pane *p, int text_width, int screen_height) {
     if (text_width < 1) text_width = 1;
 
@@ -87,7 +122,7 @@ void pane_adjust_scroll(Pane *p, int text_width, int screen_height) {
     if (margin < 0) margin = 0;
 
     int cursor_wrap = 0;
-    if (p->cursor_col > 0 && text_width > 0) {
+    if (p->cursor_col > 0) {
         int vis = buffer_get_visual_column(p->buffer,
             p->buffer->lines[p->cursor_row],
             p->buffer->line_lens[p->cursor_row],
@@ -95,50 +130,33 @@ void pane_adjust_scroll(Pane *p, int text_width, int screen_height) {
         cursor_wrap = vis / text_width;
     }
 
-    int rows_from_top = 0;
+    /* Cursor above the view: snap the view top to the cursor row */
+    if (p->cursor_row < p->scroll_offset
+        || (p->cursor_row == p->scroll_offset
+            && cursor_wrap < p->scroll_wrap)) {
+        p->scroll_offset = p->cursor_row;
+        p->scroll_wrap = cursor_wrap;
+    }
+    clamp_scroll_wrap(p, text_width);
+
+    int rows_from_top = -p->scroll_wrap;
     for (int i = p->scroll_offset; i < p->cursor_row
              && i < p->buffer->line_count; i++) {
-        int vw = buffer_get_visual_line_width(p->buffer,
-            p->buffer->lines[i], p->buffer->line_lens[i]);
-        rows_from_top += (vw == 0) ? 1 : (vw + text_width - 1) / text_width;
+        rows_from_top += line_rows(p, i, text_width);
     }
     rows_from_top += cursor_wrap;
 
     /* Scroll up if cursor too close to top */
-    if (rows_from_top < margin && p->scroll_offset > 0) {
-        while (rows_from_top < margin && p->scroll_offset > 0) {
-            p->scroll_offset--;
-            int vw = buffer_get_visual_line_width(p->buffer,
-                p->buffer->lines[p->scroll_offset],
-                p->buffer->line_lens[p->scroll_offset]);
-            rows_from_top += (vw == 0) ? 1 : (vw + text_width - 1) / text_width;
-        }
+    while (rows_from_top < margin
+           && (p->scroll_offset > 0 || p->scroll_wrap > 0)) {
+        scroll_up_row(p, text_width);
+        rows_from_top++;
     }
-
-    int rows_used = rows_from_top + 1;
 
     /* Scroll down if cursor too close to bottom */
-    if (rows_used > screen_height - margin) {
-        int excess = rows_used - (screen_height - margin);
-        while (excess > 0 && p->scroll_offset < p->cursor_row) {
-            int vw = buffer_get_visual_line_width(p->buffer,
-                p->buffer->lines[p->scroll_offset],
-                p->buffer->line_lens[p->scroll_offset]);
-            int lr = (vw == 0) ? 1 : (vw + text_width - 1) / text_width;
-            if (lr <= excess) {
-                excess -= lr;
-                p->scroll_offset++;
-            } else {
-                break;
-            }
-        }
-        if (excess > 0) p->scroll_offset++;
-    }
-
-    if (p->cursor_row < p->scroll_offset) {
-        p->scroll_offset = p->cursor_row - margin;
-        if (p->scroll_offset < 0) p->scroll_offset = 0;
-    }
+    int excess = rows_from_top + 1 - (screen_height - margin);
+    if (excess > 0) scroll_down_rows(p, text_width, excess);
+    clamp_scroll_wrap(p, text_width);
 }
 
 /* --- Selection ----------------------------------------------------------- */
